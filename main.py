@@ -1,15 +1,36 @@
 """
-Argumentative Elderly Care Plan Generator with Gradio Interface
+Hearsay Snippet Analyzer with Gradio Interface
 
-This system generates personalized care plans for elderly individuals using
-AI-driven argumentation with human-in-the-loop review via Gradio.
+This tool lets you upload or paste a single text snippet to check
+whether it contains hearsay, using AI-driven semantic analysis
+with human-in-the-loop validation via Gradio.
 
-The system will launch a web interface where you can:
-1. Enter patient information
-2. Review and modify generated arguments
-3. Get a comprehensive care plan with explanations
+When launched, the web interface allows you to:
+1. Paste or upload one passage of legal text
+2. View AI‑flagged hearsay segments and their justification
+3. Confirm, edit, or override each flag
+4. Get the annotated snippet with explanatory notes
+
+Note: What is hearsay?
+“Hearsay” means a statement that:
+(1) the declarant does not make while testifying at the current trial or hearing; and
+(2) a party offers in evidence to prove the truth of the matter asserted in the statement.
+
+Statements That Are Not Hearsay. A statement that meets the following conditions is not hearsay:
+(1) A Declarant-Witness’s Prior Statement. The declarant testifies and is subject to cross-examination about a prior statement, and the statement:
+    (A) is inconsistent with the declarant’s testimony and was given under penalty of perjury at a trial, hearing, or other proceeding or in a deposition;
+    (B) is consistent with the declarant’s testimony and is offered:
+        (i) to rebut an express or implied charge that the declarant recently fabricated it or acted from a recent improper influence or motive in so testifying ; or
+        (ii) to rehabilitate the declarant's credibility as a witness when attacked on another ground ; or
+    (C) identifies a person as someone the declarant perceived earlier.
+(2) An Opposing Party’s Statement . The statement is offered against an opposing party and:
+    (A) was made by the party in an individual or representative capacity;
+    (B) is one the party manifested that it adopted or believed to be true;
+    (C) was made by a person whom the party authorized to make a statement on the subject;
+    (D) was made by the party’s agent or employee on a matter within the scope of that relationship and while it existed; or
+    (E) was made by the party’s coconspirator during and in furtherance of the conspiracy.
+
 """
-
 from typing import TypedDict, List, Dict, Optional
 from uuid import uuid4
 from langgraph.graph import StateGraph, END
