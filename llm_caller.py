@@ -3,9 +3,9 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from env_config import (
     HUGGINGFACE_MODEL_NAME,
-    NVIDIA_API_KEY,
-    NVIDIA_API_URL,
-    NVIDIA_MODEL_NAME,
+    # NVIDIA_API_KEY,
+    # NVIDIA_API_URL,
+    # NVIDIA_MODEL_NAME,
 )
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"

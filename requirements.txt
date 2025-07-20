@@ -1,4 +1,4 @@
-gradio
-langgraph
-torch
-transformers
+gradio==5.31.0
+langgraph==0.5.3
+torch==2.6.0+cu124
+transformers==4.53.2

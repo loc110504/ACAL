@@ -9,6 +9,7 @@ To set up the project, follow these steps:
    ```
 2. Install the required Python packages:
    ```bash
+   conda create -n env python=3.11.13 -y
    pip install -r requirements.txt
    ``` 
 
