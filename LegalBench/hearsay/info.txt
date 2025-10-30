@@ -1,3 +1,0 @@
-- **hearsay** evaluates an LLM’s ability to identify—given a particular piece of evidence and an issue being litigated—whether the evidence would count as hearsay for that issue (i.e., an out-of-court statement introduced to prove the truth of the matter asserted)
-
-- **hearsay** đánh giá khả năng của mô hình ngôn ngữ lớn trong việc xác định — dựa trên một chứng cứ cụ thể và một vấn đề đang được xét xử — liệu chứng cứ đó có được coi là lời khai gián tiếp (hearsay) cho vấn đề đó hay không (tức là một tuyên bố ngoài tòa được đưa vào để chứng minh tính xác thực của nội dung được khẳng định).
