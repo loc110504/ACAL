@@ -1,44 +1,46 @@
-# file: demo_draw_graph.py
+from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.memory import MemorySaver
+from node import (
+    argument_validator,
+    multi_agent_argument_generator,
+    overall_plan_generator,
+    human_review,
+    rag_retrieval,
+    route_after_human_review,
+    final_answer_generator,
+)
+from state import GraphState
 
-import networkx as nx
-import matplotlib.pyplot as plt
 
-# Khởi tạo directed graph
-G = nx.DiGraph()
+def create_care_plan_graph():
+    """Create and configure the LangGraph workflow"""
+    workflow = StateGraph(GraphState)
 
-# Các node (tên tương ứng với workflow của bạn)
-nodes = [
-    "rag_retrieval",
-    "team_selections_and_define_criteria",
-    "argument_generation",
-    "human_review",
-    "argument_validation",
-    "final_answer_generation",
-    "END",
-]
+    # Add nodes
+    workflow.add_node("rag_retrieval", rag_retrieval)
+    workflow.add_node("overall_plan_generation", overall_plan_generator)
+    workflow.add_node("argument_generation", multi_agent_argument_generator)
+    workflow.add_node("human_review", human_review)
+    workflow.add_node("argument_validation", argument_validator)
+    workflow.add_node("final_answer_generation", final_answer_generator)
+    
+    # Add edges
+    workflow.set_entry_point("rag_retrieval")
+    workflow.add_edge("rag_retrieval", "overall_plan_generation")
+    workflow.add_edge("overall_plan_generation", "argument_generation")
+    workflow.add_edge("argument_generation", "human_review")
 
-# Thêm nodes
-G.add_nodes_from(nodes)
+    # Conditional edge for human review
+    workflow.add_conditional_edges(
+        "human_review",
+        route_after_human_review,
+        {"human_review": "human_review", "argument_validation": "argument_validation"},
+    )
 
-# Thêm các cạnh (edges)
-edges = [
-    ("rag_retrieval", "team_selections_and_define_criteria"),
-    ("team_selections_and_define_criteria", "argument_generation"),
-    ("argument_generation", "human_review"),
-    # conditional edges from human_review
-    ("human_review", "human_review"),            # nếu review chưa ok, quay lại human_review — bạn có thể loại bỏ nếu không muốn loop
-    ("human_review", "argument_validation"),     # nếu review ok -> validate
-    ("argument_validation", "final_answer_generation"),  # nếu validate ok -> final answer
-    ("final_answer_generation", "END"),
-]
+    workflow.add_edge("argument_validation", "final_answer_generation")
+    workflow.add_edge("scheduling", END)
 
-G.add_edges_from(edges)
-
-# Vẽ graph
-plt.figure(figsize=(10, 6))
-pos = nx.spring_layout(G, seed=42)  # bố cục tự động
-nx.draw(G, pos, with_labels=True, node_size=2000, node_color="skyblue", arrowsize=20, arrowstyle='-|>')
-plt.title("Legal Decision-Making / Argumentation Workflow (demo)")
-plt.axis("off")
-plt.savefig("workflow_graph.png", bbox_inches="tight", dpi=200)
-plt.close()
+    # Compile with memory for checkpointing
+    memory = MemorySaver()
+    graph = workflow.compile(checkpointer=memory)
+    return graph
