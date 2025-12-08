@@ -69,7 +69,7 @@ class AzureLLM:
 
 
 # Hàm tiện dụng dùng trong main.py
-def llm_generate(
+def gpt_generate(
     system: str,
     messages: List[Message],
     *,
@@ -192,19 +192,7 @@ def phi4_generate(role_prompt: str, user_prompt: str, retries: int = 5):
 if __name__ == "__main__":
         # Ví dụ dùng trong main.py
     test_argument = """
-    Criterion: PHQ-8 — Anhedonia (Loss of interest)
-    Proposed Score: 2
 
-    Argument:
-    The patient shows <DiseaseSymptoms>reduced interest in daily activities</DiseaseSymptoms> on 
-    <SymptomFrequency>more than half of the days in the past 2 weeks</SymptomFrequency>. 
-    This aligns with <RAG>guidelines indicating a score of 2 when interest loss occurs on “more than half the days”</RAG>. 
-    However, some contextual observations may indirectly reflect mood-related disengagement.
-
-    Evidence:
-    1. <RAG>“Patient mentions increased difficulty in organizing their medication schedule.” (chars 150–190)</RAG>
-    2. <RAG>“Reports occasional joint stiffness when getting out of bed.” (chars 250–280)</RAG>
-    3. <RAG>“Frequently asks about meal delivery services in the neighborhood.” (chars 300–330)</RAG>
     """
 
 
