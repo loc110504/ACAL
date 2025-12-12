@@ -203,5 +203,5 @@ LEGAL_AGENTS = {
             "thorough and objective analysis"
         ],
         argument_style="Research-oriented, objective, focused on clarity, risk assessment, legal interpretation"
-    ),
+     ),
 }
