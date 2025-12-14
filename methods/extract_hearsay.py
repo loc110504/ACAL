@@ -3,13 +3,13 @@ import pandas as pd
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
 
 # Load file
-df = pd.read_csv("answers/hearsay/cot_prompt_phi4_hearsay.tsv",  sep='\t', usecols=[0, 1, 2, 3, 4, 5], 
-                 names=['index', 'text', 'gold_answer', 'slice', 'llm_answer', 'llm_explanation'],
+df = pd.read_csv("answers/hearsay/mad_gpt_hearsay.tsv",  sep='\t', usecols=[0, 1, 2, 3], 
+                 names=['index', 'text', 'gold_answer', 'final_answer'],
                  skiprows=1)
 
 # Lấy cột gold_answer và llm_answer
 y_true = df['gold_answer']
-y_pred = df['llm_answer']
+y_pred = df['final_answer']
 
 # Tính các metrics (bỏ pos_label khi dùng average='macro')
 accuracy = accuracy_score(y_true, y_pred)
