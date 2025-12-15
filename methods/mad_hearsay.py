@@ -7,7 +7,7 @@ import pandas as pd
 import random
 import json
 from methods.rag import RAGModule
-from api_call import llama_generate, gpt_generate, phi4_generate
+from api_call import llama_generate, gpt_generate, phi4_generate, gemini_generate
 
 # ---------------- CONFIG ----------------
 AGENTS = 3
@@ -100,7 +100,7 @@ for idx, row in df.iterrows():
                 ]
                 prompt = build_debate_prompt(text, context, others)
 
-            result = gpt_generate(system_prompt=prompt)
+            result = gemini_generate(system_prompt=prompt)
 
             if result is None:
                 agent_histories[agent_id].append({
@@ -130,4 +130,4 @@ for idx, row in df.iterrows():
 
 # ---------------- SAVE ----------------
 out_df = pd.DataFrame(results)
-out_df.to_json("mad_gpt_hearsay.json", orient="records", indent=2)
+out_df.to_json("mad_gemini_hearsay.json", orient="records", indent=2)

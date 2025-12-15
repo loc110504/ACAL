@@ -1,7 +1,7 @@
 """
 RAG-Enhanced Legal Inference with Azure OpenAI Embeddings
 """
-from api_call import gpt_generate, llama_generate, phi4_generate
+from api_call import gpt_generate, llama_generate, phi4_generate, gemini_generate
 import pandas as pd
 from pydantic import ValidationError
 from methods.rag import RAGModule
@@ -169,7 +169,7 @@ for idx, row in df.iterrows():
     system_prompt = build_rag_prompt(text=text, context=context)
 
     # ---- GENERATE: Call LLM with augmented prompt ----
-    result = llama_generate(system_prompt=system_prompt)
+    result = gemini_generate(system_prompt=system_prompt)
 
     if result:
         is_correct = (result.answer.strip().lower() == gold_answer.strip().lower())
@@ -195,5 +195,5 @@ for idx, row in df.iterrows():
         })
         print(f"\n❌ Failed to parse response from LLM")
 out_df = pd.DataFrame(results)
-out_path = "rag_enhanced_llama_hearsay.tsv"
+out_path = "rag_enhanced_gemini_hearsay.tsv"
 out_df.to_csv(out_path, sep="\t", index=False)

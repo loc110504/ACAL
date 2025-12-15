@@ -1,4 +1,4 @@
-from api_call import gpt_generate, llama_generate, phi4_generate
+from api_call import gpt_generate, llama_generate, phi4_generate, gemini_generate
 import pandas as pd
 from pydantic import ValidationError
 
@@ -60,7 +60,7 @@ A:
 
     # ---- Gọi Llama API ----
     print(f"🔍 Processing sample {idx}...")
-    result = phi4_generate(system_prompt=system_prompt)
+    result = gemini_generate(system_prompt=system_prompt)
 
     if result:
         results.append({
@@ -88,7 +88,7 @@ A:
 
 # ---- Ghi kết quả ra file ----
 out_df = pd.DataFrame(results)
-out_path = "cot_prompt_phi4_hearsay.tsv"
+out_path = "cot_prompt_gemini_hearsay.tsv"
 out_df.to_csv(out_path, sep="\t", index=False)
 
 print(f"\n💾 Saved results to {out_path}")

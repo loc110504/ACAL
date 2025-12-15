@@ -1,4 +1,4 @@
-from api_call import gpt_generate, llama_generate, phi4_generate
+from api_call import gpt_generate, llama_generate, phi4_generate, gemini_generate
 import pandas as pd
 
 # ---- Load data ----
@@ -45,7 +45,7 @@ for idx, row in df.iterrows():
     """
 
     print(f"🔍 Processing sample {idx}...")
-    result = phi4_generate(system_prompt=system_prompt)
+    result = gemini_generate(system_prompt=system_prompt)
 
     if result:
         results.append({
@@ -68,6 +68,6 @@ for idx, row in df.iterrows():
 
 # ---- (Optional) Ghi kết quả ra file ----
 out_df = pd.DataFrame(results)
-out_df.to_csv("standard_prompt_phi4_courts.tsv", sep="\t", index=False)
+out_df.to_csv("standard_prompt_gemini_courts.tsv", sep="\t", index=False)
 
     
