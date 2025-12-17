@@ -23,6 +23,7 @@ def call_gemini_llm(prompt: str, temperature: float = 0.3, max_tokens: int = 102
     # Remove code block markers if present (handles lines like ```json or ```)
     cleaned = re.sub(r"^```(?:json)?\s*$", "", text, flags=re.MULTILINE)
     cleaned = re.sub(r"^```\s*$", "", cleaned, flags=re.MULTILINE)
+    print("[DEBUG] Cleaned LLM output:\n", cleaned.strip())
     return cleaned.strip()
 
 

@@ -1,7 +1,7 @@
 from state import Argument, GraphState
 from llm_caller import call_llm, call_llm_stream
 import re
-
+import json
 
 from legal_agents import LEGAL_AGENTS
 from test import RAGModule
@@ -139,11 +139,26 @@ def agent_selector(state: GraphState, type: str) -> GraphState:
     """
 
     selection_response = call_llm(selection_prompt, temperature=0.3, max_tokens=512)
+    
+    # Parse JSON response and extract selected_agents list
+    try:
+        selection_json = json.loads(selection_response)
+        selected_agents = selection_json.get("selected_agents", [])
+        if not isinstance(selected_agents, list):
+            print(f"[ERROR] 'selected_agents' is not a list. Got: {type(selected_agents)}")
+            selected_agents = []
+    except json.JSONDecodeError as e:
+        print(f"[ERROR] Failed to parse agent selection JSON: {e}")
+        print(f"Response was: {selection_response[:200]}...")
+        selected_agents = []
+    except Exception as e:
+        print(f"[ERROR] Unexpected error parsing agent selection: {e}")
+        selected_agents = []
 
     if type == "support":
-        state["selected_support_agents"] = selection_response
+        state["selected_support_agents"] = selected_agents
     elif type == "attack":
-        state["selected_attack_agents"] = selection_response
+        state["selected_attack_agents"] = selected_agents
     
     return state
 
