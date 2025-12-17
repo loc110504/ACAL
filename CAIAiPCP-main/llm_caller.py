@@ -6,8 +6,11 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from env_config import (
     HUGGINGFACE_MODEL_NAME,
     DEVICE,
-    GEMINI_API_KEY,
 )
+
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
 
 from google import genai
 from google.genai import types
@@ -77,7 +80,7 @@ def call_huggingface_llm(
         return ""
     
 def call_gemini_llm(prompt: str, temperature: float = 0.7, max_tokens: int = 2048) -> str:
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
     print(f"Calling Gemini LLM with prompt: {prompt}")
     response = client.models.generate_content(
         model="gemini-2.5-flash-lite",
@@ -93,7 +96,7 @@ def call_gemini_llm(prompt: str, temperature: float = 0.7, max_tokens: int = 204
 def call_gemini_llm_stream(prompt: str, temperature: float = 0.7, max_tokens: int = 2048):
     """Stream responses from Gemini model"""
     try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
+        client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
         
         # Use generate_content_stream for streaming responses
         response_stream = client.models.generate_content_stream(
