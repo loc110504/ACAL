@@ -1,20 +1,124 @@
+"""
+RAG-Enhanced Legal Inference with Azure OpenAI Embeddings
+"""
 from api_call import gpt_generate, llama_generate, phi4_generate, gemini_generate
 import pandas as pd
+from pydantic import ValidationError
+from methods.rag import RAGModule
+import os
 
-# ---- Load data ----
-df = pd.read_csv("data/learned_hands_courts/test.tsv", sep="\t")
+# ---- Initialize RAG components ----
+print("🔧 Initializing RAG system with Azure OpenAI embeddings...")
 
-# ---- Loop chạy LLM ----
-results = []
+# Initialize RAG module
+rag = RAGModule(persist_directory="./chroma_db")
 
-for idx, row in df.iterrows():
-    text = row["text"]
-    gold_answer = row["answer"]
+# Collection name for legal documents
+COLLECTION_NAME = "legal_hearsay_docs"
+
+# Try to load existing collection
+vectorstore = rag.load_collection(collection_name=COLLECTION_NAME)
+
+# If collection doesn't exist, create it from documents
+if vectorstore is None:
+    print(f"⚠️  Collection '{COLLECTION_NAME}' not found. Creating new collection...")
+    docs_path = "./legal_documents"
+    
+    vectorstore = rag.create_collection_from_docs(
+        docs_path=docs_path,
+        collection_name=COLLECTION_NAME
+    )
+    
+    if vectorstore is None:
+        print("❌ Failed to create collection. Exiting.")
+        exit(1)
+
+print(f"✓ RAG system ready!\n")
+
+# ---- RAG Configuration ----
+RAG_TOP_K = 3  # Number of relevant documents to retrieve
+MIN_SIMILARITY_SCORE = 0.5  # Minimum similarity threshold (lower score = more similar for some embeddings)
 
 
-    system_prompt = f"""
+def retrieve_context(query: str, top_k: int = RAG_TOP_K):
+    """
+    Retrieve relevant legal context from RAG system.
+    
+    Args:
+        query: The legal question/text to find context for
+        top_k: Number of top documents to retrieve
+        
+    Returns:
+        Tuple of (formatted context string, list of evidence dicts)
+    """
+    # Query RAG system
+    evidences = rag.query_rag(
+        query=query,
+        top_k=top_k,
+        collection_name=COLLECTION_NAME
+    )
+    
+    if not evidences:
+        return "", []
+    
+    # Filter by similarity score if needed
+    # Note: Depending on the distance metric, lower scores may mean higher similarity
+    # For cosine similarity with Chroma, lower distance = more similar
+    relevant_evidences = evidences  # You can add filtering here if needed
+    
+    if not relevant_evidences:
+        return "", []
+    
+    # Format context
+    context_parts = []
+    for i, evidence in enumerate(relevant_evidences, 1):
+        text = evidence["text"]
+        score = evidence["score"]
+        source = evidence.get("source", "unknown")
+        chunk_id = evidence.get("chunk_id", "N/A")
+        
+        context_parts.append(
+            f"[Legal Context {i} - Relevance Score: {score:.3f}]\n"
+            f"Source: {source} (Chunk {chunk_id})\n"
+            f"{text.strip()}\n"
+        )
+    
+    formatted_context = "\n".join(context_parts)
+    return formatted_context, relevant_evidences
+
+def build_rag_prompt(text: str, context: str) -> str:
+    """
+    Build system prompt with RAG context for hearsay detection.
+    
+    Args:
+        text: The hearsay question
+        context: Retrieved context from RAG system
+        
+    Returns:
+        Complete system prompt with context
+    """
+    # Base prompt with few-shot examples
+    base_prompt = """
     You are a professional legal reasoning assistant.  
-    Does the post discuss the logistics of how a person can interact with a lawyer or the court system. It applies to situations about procedure, rules, how to file lawsuits, how to hire lawyers, how to represent oneself, and other practical matters about dealing with these systems?
+    TASK:
+    Decide whether the post should be labeled "Yes" for COURTS or "No" otherwise.
+
+    LABEL DEFINITION (COURTS = "Yes"):
+    The post is about logistics of interacting with the court system or with lawyers, including:
+    - court procedures, filings, deadlines, hearings, appeals, records
+    - hiring, managing, or communicating with a lawyer
+
+    DECISION RULE:
+    Answer "Yes" ONLY IF the post is primarily about court or lawyer interaction logistics.
+    Otherwise answer "No".
+
+    INTERNAL REASONING:
+    Use internal reasoning to decide, but DO NOT explain your reasoning step-by-step.
+
+    OUTPUT REQUIREMENTS:
+    - Output JSON only
+    - Explanation must be 2–3 sentences
+    - Explanation must cite concrete cues from the post text
 
     Post: Is it normal for a California court to fudge up your records?   I was supposed to have 2 previous arrests "dismissed" via expungement and well, they never did I guess. It took me being denied a really good job 3 years later to figure this out too.   I have the court documents that say my charges have here by been dismissed but my DOJ record is saying something different. What do I do? Do I have any sort of recourse against the court house for not getting that job. (I'm sure I don't, I'm just pretty broken up about it)  Thanks Legal Advice!
     Label: Yes
@@ -33,6 +137,21 @@ for idx, row in df.iterrows():
 
     Post: I am trying to divorce my abusive spouse. We've been married 12 years and have a six year old daughter. He has been physically violent for years and has continued to stalk me pretty aggressively throughout our separation. I moved out in Nov. 2016 and officially filed with the courts in Feb. 2017 pro se. He counter petitioned and as I did not have an attorney I was bullied into giving majority custody to him of our daughter. This has proved to be a bad decision as he does not care for her emotional well being and she is now seeing a therapist. He also continues to break the morality clause in our custody orders. I have gone to authorities to attempt to get a Protective Order against him, once with a bruise from him on my body, and they stated that as we are still married and have a child together they thought it best to deny. I have had to fight to get a criminal trespass warning for my home. Since I decided to leave I have been seeing someone else. My boyfriend has been hit multiple times and charges were pressed but they never went anywhere. The local police told him he should just stop seeing me and that I'm getting what I deserve bc I shouldn't be seeing someone while I'm still technically married. On top of physical stalking, he works in IT security and cyber stalks me constantly. He hacks into ALL of my online accounts, wipes or locks out my phone (which he is not on the account or any of my accounts), gets into my bank accounts, paypal etc, and has begun hacking into the network where I work and messing with my payroll stuff as well as posting inappropriate pictures for all of my coworkers to see. Meanwhile, no one will listen to me or acknowledge whats going on no matter what I report. He even reads all my text messages, etc, tracks my whereabouts constantly, and does petty things like driving by my house and setting of my car alarm in the middle of the night. He has recently been diagnosed as having borderline personality disorder after a suicide attempt and I feel he is unfit to parent our child. However, I cant afford a retainer for an attorney. I now pay approximately 45% of my income to him for child support, insurance for our daughter, daycare for her while shes with him, and other medical fees each month. My check is already small so this has left me on the brink of homelessness even though I work full time and clean houses on the side. He tells our child awful things like I don't love her and I'm a quote "fucking whore" etc constantly which has been very detrimental to her. At this point I'm at my wits end. I feel like no one is listening and I have no where to turn. I would love to free myself and my daughter from this abuse and unsustainable situation, but I don't know what to do. Could anyone tell me how long he can ride this out without signing divorce papers since he counter petitioned? What can I do to lower the amount I pay to him as I am in such dire straits and he makes a few thousand a month more than I do already? Without everything coming out I currently bring home less than a minimum wage employee and cant find an attorney willing to help
     Label: No
+    """
+
+    # Add RAG context if available
+    if context:
+        context_section = f"""
+        RELEVANT LEGAL AUTHORITY & PRECEDENTS
+        The following legal materials may provide additional guidance for analyzing this case:
+
+        {context}
+        """
+        base_prompt = base_prompt + "\n" + context_section
+    
+    # Add the actual question
+    question_section = f"""
+    NOW ANALYZE THIS CASE:
 
     Post: {text}
     Label: answer
@@ -43,11 +162,28 @@ for idx, row in df.iterrows():
     "explanation": "2–3 sentences explaining for the answer."
     }}
     """
+    return base_prompt + question_section
+# ---- Load data ----
+df = pd.read_csv("data/learned_hands_courts/test.tsv", sep="\t")
 
-    print(f"🔍 Processing sample {idx}...")
-    result = gemini_generate(system_prompt=system_prompt)
+# ---- Loop chạy LLM ----
+results = []
+
+
+for idx, row in df.iterrows():
+    text = row["text"]
+    gold_answer = row["answer"]
+    context, evidences = retrieve_context(query=text, top_k=RAG_TOP_K)
+    
+    # ---- AUGMENT: Build prompt with context ----
+    system_prompt = build_rag_prompt(text=text, context=context)
+
+    # ---- GENERATE: Call LLM with augmented prompt ----
+    result = llama_generate(system_prompt=system_prompt)
 
     if result:
+        is_correct = (result.answer.strip().lower() == gold_answer.strip().lower())
+        match_symbol = "✅" if is_correct else "❌"
         results.append({
             "index": idx,
             "text": text,
@@ -64,10 +200,10 @@ for idx, row in df.iterrows():
             "llm_answer": None,
             "llm_explanation": None
         })
-        print(f"⚠️ Failed to parse sample {idx}")
+        print(f"\n❌ Failed to parse response from LLM")
 
 # ---- (Optional) Ghi kết quả ra file ----
 out_df = pd.DataFrame(results)
-out_df.to_csv("standard_prompt_gemini_courts.tsv", sep="\t", index=False)
+out_df.to_csv("rag_enhanced_llama_courts.tsv", sep="\t", index=False)
 
     

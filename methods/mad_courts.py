@@ -1,6 +1,7 @@
 """
 Multi-Agent Debate with RAG-enhanced Legal Inference
 Adapted from original Multiagent Debate code
+(COURTS version)
 """
 
 import pandas as pd
@@ -39,11 +40,24 @@ def retrieve_context(query: str, top_k: int):
     return "\n\n".join(context_parts)
 
 
+# ---------------- PROMPTS (COURTS) ----------------
 def build_base_prompt(text: str, context: str):
     prompt = """
 You are a professional legal reasoning assistant.
-HEARSAY RULE: Hearsay is an out-of-court statement introduced to prove the truth of the matter asserted.
 
+TASK:
+Decide whether the post should be labeled "Yes" for COURTS or "No" otherwise.
+
+LABEL DEFINITION (COURTS = "Yes"):
+The post is about logistics of interacting with the court system or with lawyers, including:
+- court procedures, filings, deadlines, hearings, appeals, records
+- hiring, managing, or communicating with a lawyer
+
+DECISION RULE:
+Answer "Yes" ONLY IF the post is primarily about court or lawyer interaction logistics.
+Otherwise answer "No".
+
+OUTPUT REQUIREMENTS:
 Answer ONLY in valid JSON:
 {
   "answer": "Yes" or "No",
@@ -54,7 +68,7 @@ Answer ONLY in valid JSON:
     if context:
         prompt += f"\nRELEVANT LEGAL AUTHORITY:\n{context}\n"
 
-    prompt += f"\nCASE:\n{text}\nIs there hearsay?\n"
+    prompt += f"\nCASE:\n{text}\nLabel:\n"
     return prompt
 
 
@@ -74,7 +88,7 @@ Using the reasoning from other agents:
 
 
 # ---------------- LOAD DATA ----------------
-df = pd.read_csv("data/hearsay/test.tsv", sep="\t")
+df = pd.read_csv("data/learned_hands_courts/test.tsv", sep="\t")
 
 results = []
 
@@ -100,7 +114,7 @@ for idx, row in df.iterrows():
                 ]
                 prompt = build_debate_prompt(text, context, others)
 
-            result = gemini_generate(system_prompt=prompt)
+            result = gpt_generate(system_prompt=prompt)
 
             if result is None:
                 agent_histories[agent_id].append({
@@ -130,4 +144,4 @@ for idx, row in df.iterrows():
 
 # ---------------- SAVE ----------------
 out_df = pd.DataFrame(results)
-out_df.to_json("mad_gemini_hearsay.json", orient="records", indent=2)
+out_df.to_json("mad_gemini_courts.json", orient="records", indent=2)

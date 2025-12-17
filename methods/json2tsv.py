@@ -2,8 +2,8 @@ import json
 import csv
 
 # Đường dẫn file
-input_json = "mad_gpt_hearsay.json"
-output_tsv = "output.tsv"
+input_json = "answers/learned_hands_courts/mad_gemini_courts.json"
+output_tsv = "answers/learned_hands_courts/mad_gemini_courts.tsv"
 
 # Đọc JSON
 with open(input_json, "r", encoding="utf-8") as f:
