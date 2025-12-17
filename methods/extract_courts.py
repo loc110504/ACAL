@@ -3,8 +3,8 @@ import pandas as pd
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
 
 # Load file
-df = pd.read_csv("answers/learned_hands_courts/cot_prompt_gemini_courts.tsv",  sep='\t', usecols=[0, 1, 2, 3, 4], 
-                 names=['index', 'text', 'gold_answer', 'llm_answer', 'llm_explanation'],
+df = pd.read_csv("answers/learned_hands_courts/rag_enhanced_llama_courts.tsv",  sep='\t', usecols=[0, 1, 2, 3], 
+                 names=['index', 'text', 'gold_answer', 'final_answer'],
                  skiprows=1)
 
 print("Columns in file:", df.columns.tolist())
@@ -13,19 +13,19 @@ print(f"First few rows:\n{df.head()}\n")
 
 # Chuẩn hóa các giá trị Yes/No (uppercase)
 df['gold_answer'] = df['gold_answer'].str.strip().str.capitalize()
-df['llm_answer'] = df['llm_answer'].str.strip().str.capitalize()
+df['final_answer'] = df['final_answer'].str.strip().str.capitalize()
 
-# Xử lý các giá trị null trong llm_answer
-null_count = df['llm_answer'].isna().sum()
+# Xử lý các giá trị null trong final_answer
+null_count = df['final_answer'].isna().sum()
 if null_count > 0:
-    print(f"⚠️ Warning: {null_count} samples have null llm_answer (will be excluded from metrics)\n")
-    df_valid = df.dropna(subset=['llm_answer'])
+    print(f"⚠️ Warning: {null_count} samples have null final_answer (will be excluded from metrics)\n")
+    df_valid = df.dropna(subset=['final_answer'])
 else:
     df_valid = df
 
-# Lấy cột gold_answer và llm_answer
+# Lấy cột gold_answer và final_answer
 y_true = df_valid['gold_answer']
-y_pred = df_valid['llm_answer']
+y_pred = df_valid['final_answer']
 
 # Tính các metrics
 accuracy = accuracy_score(y_true, y_pred)
