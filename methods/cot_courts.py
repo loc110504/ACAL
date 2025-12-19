@@ -33,7 +33,7 @@ for idx, row in df.iterrows():
     OUTPUT REQUIREMENTS:
     - Output JSON only
     - Explanation must be 2–3 sentences
-    - Explanation must cite concrete cues from the post text
+ blob:https://www.facebook.com/bb34055f-5ddd-4a52-bf0e-b0cade031942   - Explanation must cite concrete cues from the post text
 
     FEW-SHOT EXAMPLES:
 

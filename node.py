@@ -483,13 +483,108 @@ def final_answer_generator(state: GraphState) -> GraphState:
                     score = 0.0
                 prompt += f"\n    - [{score:.2f}] {arg.content}"
 
-    prompt += """
-    Based on the above, provide:
-    1. The most legally justified answer (choose one option and explain why)
-    2. A summary of supporting and challenging arguments for the chosen option
-    3. Cite relevant legal documents using [REF-X] format where appropriate
-    4. Briefly discuss any remaining uncertainties or limitations
-    Return a clear, structured answer suitable for legal reasoning.
+    # prompt += """
+    # Based on the above, provide:
+    # 1. The most legally justified answer (choose one option and explain why)
+    # 2. A summary of supporting and challenging arguments for the chosen option
+    # 3. Cite relevant legal documents using [REF-X] format where appropriate
+    # 4. Briefly discuss any remaining uncertainties or limitations
+    # Return a clear, structured answer suitable for legal reasoning.
+    # """
+    if task_name == "hearsay":
+        prompt += """
+        For every question, you must internally run a structured chain-of-thought analysis, but **never reveal it**.
+Only output the final JSON answer.
+### Internal reasoning steps (not shown to user):
+1. Determine whether there is a statement.
+2. Determine whether the statement is out-of-court.
+3. Determine whether it is offered to prove the truth of the matter asserted.
+4. If it is hearsay, check whether it is excluded.
+5. If still hearsay, evaluate applicable exceptions or exceptions requiring unavailability.
+6. Conclude whether the evidence is hearsay or not.
+
+### Your response behavior:
+
+* Never reveal chain-of-thought reasoning.
+* Only return the final conclusion + short explanation in JSON.
+* Follow the style demonstrated in the examples.
+
+### Format for all answers (Few-shot samples):
+Q: On the issue of whether David is fast, the fact that David set a high school track record. Is there hearsay?
+A: No
+
+Q: On the issue of whether Rebecca was ill, the fact that Rebecca told Ronald that she was unwell. Is there hearsay?
+A: Yes
+
+Q: To prove that Tim was a soccer fan, the fact that Tim told Jimmy that "Real Madrid was the best soccer team in the world." Is there hearsay?
+A: No
+
+Q: When asked by the attorney on cross-examination, Alice testified that she had "never seen the plaintiff before, and had no idea who she was." Is there hearsay?
+A: No
+
+Q: On the issue of whether Martin punched James, the fact that Martin smiled and nodded when asked if he did so by an officer on the scene. Is there hearsay?
+A: Yes
+
+    
+    """
+    if task_name == "learned_hands_courts":
+        prompt += """
+You are a professional legal reasoning assistant.
+
+    TASK:
+    Decide whether the post should be labeled "Yes" for COURTS.
+
+    LABEL DEFINITION (COURTS = "Yes"):
+    The post is about logistics of interacting with the court system or with lawyers, including:
+    - court procedures, filings, deadlines, hearings, appeals, records
+    - hiring, managing, or communicating with a lawyer
+
+    DECISION RULE:
+    Answer "Yes" ONLY IF the post is primarily about court or lawyer interaction logistics.
+    Otherwise answer "No".
+
+    INTERNAL REASONING:
+    Use internal reasoning to decide, but DO NOT explain your reasoning step-by-step.
+
+    OUTPUT REQUIREMENTS:
+    - Output JSON only
+    - Explanation must be 2–3 sentences
+ blob:https://www.facebook.com/bb34055f-5ddd-4a52-bf0e-b0cade031942   - Explanation must cite concrete cues from the post text
+
+    FEW-SHOT EXAMPLES:
+
+    Post: Is it normal for a California court to fudge up your records?   I was supposed to have 2 previous arrests "dismissed" via expungement and well, they never did I guess. It took me being denied a really good job 3 years later to figure this out too.   I have the court documents that say my charges have here by been dismissed but my DOJ record is saying something different. What do I do? Do I have any sort of recourse against the court house for not getting that job. (I'm sure I don't, I'm just pretty broken up about it)  Thanks Legal Advice!
+    Label: Yes
+
+    Post: As a preface to this story I drive a truck for the nation's largest retailer and they pay me very good (six figures good).   I was on my off day and took an out of town trip with my wife and kids in the family minivan. We started to approach the small town of Uniontown AL and I was immediately pulled over by a police officer (he passed me going the opposite direction then proceeded to do a unturn to get behind me). I'm puzzled because I always drive safe and legal, my wife always gripes at me for this habit. Before the officer approached my window I had done decided that I must have hit a 45 mph zone without realizing it and I never slowed down from 55 mph. When he approached my window the first thing the officer told me is I was doing 70 in a 55. My jaw dropped because I know I was going 55. I didn't argue with the officer and I didn't confirm or deny doing 70. I pretty much remained silent. He gave me my citation and I carried on. My wife did research on this town's police force and found a message board with so many other horror stories just like mine with people getting pulled over for doing 70 in a 55. So I think it's obvious that this town is running a scam.   I know the obvious answer is to "lawyer up" and I'm planning on doing that this Monday. But my most concerning question is, will that even do any good in a corrupt jurisdiction? I mean if the cops are going to flat out lie and say motorists were speeding then does that mean the staff of the municipal court could be in on it as well?   And to revisit my beginning statement where I drive truck for the nation's largest retailer... They will not tolerate a serious violation on my mvr. So I'm possibly facing a $100,000/yr job loss. Who knows, they might be understanding and give me a slap on the wrist but either way I'm scared!   Where do I go from here?
+    Label: Yes
+
+    Post: Yesterday I received 3 notices of traffic tickets from Florence (Originally perpetrated in March) where I "was driving within the limited traffic area without authorization". Two infractions were within 40 minutes, and the other was 2 days later. I don't recall seeing signs, or being on a road that seemed like I shouldn't, but I don't speak Italian either!   I am an American citizen living in the US that was using a rental car. It's important to note that these notices seem to be from the city police directly, and not through the rental company. All 3 notices are for 81 + 37 Euros for procedures.   It ends up being $403 USD. What are my options and what would you recommend? Can I just not pay? Will I not be allowed to go back to Italy?
+    Label: Yes
+
+    Post: Im being asked to sign a custody agreement. Im being told that I can bring this matter back to the court in a year. However, in big bold letters and a lager font than the rest of the document it reads "THIS AGREEMENT IS NOT SUBJECT TO REVOCATION" under that it says As part of the consideration herein, tge parties acknowledge that this agreement is binding and not subject to revocation.   My ex whom im having a hard time trusting said that was put in for me, so visitation can never be withheld.  can someone please help me understand if i sign this agreement, would I be able to change it in 12 mos?
+    Label: No
+
+    Post: I made friends with a fellow nursing student about a year ago. We got along well for a most of that time until she started acting very strangely so I tried to reduce our interactions to more of an acquaintance level. I still helped her with school work and coached her through some NCLEX practice exams. I made sure to be very non-confrontational as she has mentioned all sorts of mental instability issues in the past and how she hates having any sort of direct confrontation. I have no idea if any claims about depression or anxiety are actually diagnosed.  We ended up with pretty much the SAME EXACT schedule this past semester. So naturally, we would walk to class together and occasionally go to the restroom together. Normal female things. Nothing she did gave me any cause for alarm. I never tried to bother her. I thought it was a simple, functional, school-based friendship.  This is where things get strange. She started acting very distant and would ignore about half the time when I would say hi and she started leaving class for long periods. Then she started leaving whenever I would even be in the same hall way. She'd leave class about a minute before it was over and not make eye contact with anyone. I thought maybe she was having a serious problem so I texted her to see if she was okay. If anything was wrong, etc. If I could help. I may not want to be best friends but when someone acts THAT oddly, maybe just a little compassion can change whatever situation they are in.  She assures me that everything is fine and then started ignoring me completely a few days later. I gave up on trying to figure out what was up or if I could help. I kept to myself. This was a while back.  I get a text about a week ago saying that she feels uncomfortable with how much I stalked her last semester and she didn't think it was okay for me to go to the restroom with her because she felt that I wanted an intimate relationship and would try something.  I told her I was uncomfortable with further contact after telling her it had been a while since I 'stalked' her and that the stalking she was talking about was unavoidable on both of our parts because we had five classes together in the same day. If she was following me or I her, it couldn't have been avoided but that whatever she perceived to be the case was simply us walking to class together. She was the one that showed up on campus on days that she had no classes and went to some of my classes with me (I had seven classes total that semester). I feel like if anyone should be scared of the situation, it should be me. I'm not, though. Just uncomfortable.  I'm worried that since this contact was so out of the blue and so unprovoked with specific details on how I made her feel threatened basically, that she's trying to set me up in some way. I'm genuinely worried because what if she's saying all of that and being so unpredictable because she's about to do something like file a restraining order? That would kill any future I could have as a nurse.  We are both early thirties in Nebraska if that affects regional laws.  What should I do? Save the texts and get a lawyer on retainer just in case? I don't understand why she would just now start doing all of this when we haven't really talked since last semester. This whole situation feels very wrong to me. I know she's a very good manipulator which is one of the main reasons I stopped associating with her so much. This all feels too odd and specific to mean anything good.  **TL;DR-** Ex-class mate from last semester texts me out of the blue saying that she feels like I was stalking her. Why bring this up now, without ever indicating that feeling before? What should I do to protect myself and my future?
+    Label: No
+
+    Post: I am trying to divorce my abusive spouse. We've been married 12 years and have a six year old daughter. He has been physically violent for years and has continued to stalk me pretty aggressively throughout our separation. I moved out in Nov. 2016 and officially filed with the courts in Feb. 2017 pro se. He counter petitioned and as I did not have an attorney I was bullied into giving majority custody to him of our daughter. This has proved to be a bad decision as he does not care for her emotional well being and she is now seeing a therapist. He also continues to break the morality clause in our custody orders. I have gone to authorities to attempt to get a Protective Order against him, once with a bruise from him on my body, and they stated that as we are still married and have a child together they thought it best to deny. I have had to fight to get a criminal trespass warning for my home. Since I decided to leave I have been seeing someone else. My boyfriend has been hit multiple times and charges were pressed but they never went anywhere. The local police told him he should just stop seeing me and that I'm getting what I deserve bc I shouldn't be seeing someone while I'm still technically married. On top of physical stalking, he works in IT security and cyber stalks me constantly. He hacks into ALL of my online accounts, wipes or locks out my phone (which he is not on the account or any of my accounts), gets into my bank accounts, paypal etc, and has begun hacking into the network where I work and messing with my payroll stuff as well as posting inappropriate pictures for all of my coworkers to see. Meanwhile, no one will listen to me or acknowledge whats going on no matter what I report. He even reads all my text messages, etc, tracks my whereabouts constantly, and does petty things like driving by my house and setting of my car alarm in the middle of the night. He has recently been diagnosed as having borderline personality disorder after a suicide attempt and I feel he is unfit to parent our child. However, I cant afford a retainer for an attorney. I now pay approximately 45% of my income to him for child support, insurance for our daughter, daycare for her while shes with him, and other medical fees each month. My check is already small so this has left me on the brink of homelessness even though I work full time and clean houses on the side. He tells our child awful things like I don't love her and I'm a quote "fucking whore" etc constantly which has been very detrimental to her. At this point I'm at my wits end. I feel like no one is listening and I have no where to turn. I would love to free myself and my daughter from this abuse and unsustainable situation, but I don't know what to do. Could anyone tell me how long he can ride this out without signing divorce papers since he counter petitioned? What can I do to lower the amount I pay to him as I am in such dire straits and he makes a few thousand a month more than I do already? Without everything coming out I currently bring home less than a minimum wage employee and cant find an attorney willing to help
+    Label: No
+        """
+    
+    
+    prompt += f"""
+    Based on the above, provide your response in the following JSON format ONLY:
+    {{
+        "answer": "Yes" or "No",
+        "explanation": "2-3 sentences explaining your answer and citing relevant legal documents using [REF-X] format where appropriate."
+    }}
+    
+    Requirements:
+    1. Choose the most legally justified answer (Yes or No based on the options: {', '.join(options)})
+    2. Explanation must be 2-3 sentences
+    3. Include relevant document citations using [REF-X] format
+    4. Return ONLY valid JSON, no additional text
     """
 
     if state.get("enable_streaming", False):
