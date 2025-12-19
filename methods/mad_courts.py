@@ -144,4 +144,4 @@ for idx, row in df.iterrows():
 
 # ---------------- SAVE ----------------
 out_df = pd.DataFrame(results)
-out_df.to_json("mad_gemini_courts.json", orient="records", indent=2)
+out_df.to_json("mad_gpt_courts.json", orient="records", indent=2)
