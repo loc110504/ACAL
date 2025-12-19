@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Legal Analysis Assistant - AI-Powered Argumentation</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 50%, #7e8ba3 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .chat-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 25px 70px rgba(0,0,0,0.4);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 92vh;
+        }
+
+        .chat-header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            padding: 25px 30px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .chat-header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .chat-header p {
+            font-size: 15px;
+            opacity: 0.95;
+            margin-top: 8px;
+            font-weight: 400;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f7f9fc;
+        }
+
+        .message {
+            margin-bottom: 20px;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message.user {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .message.assistant {
+            display: flex;
+            justify-content: flex-start;
+        }
+
+        .message-content {
+            max-width: 80%;
+            padding: 15px 20px;
+            border-radius: 18px;
+            position: relative;
+        }
+
+        .user .message-content {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .assistant .message-content {
+            background: white;
+            color: #333;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .section {
+            margin: 15px 0;
+        }
+
+        .section-header {
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .section-header:hover {
+            color: #764ba2;
+        }
+
+        .section-header::before {
+            content: '▼';
+            margin-right: 8px;
+            font-size: 12px;
+            transition: transform 0.3s;
+        }
+
+        .section-header.collapsed::before {
+            transform: rotate(-90deg);
+        }
+
+        .section-content {
+            padding-left: 20px;
+            line-height: 1.6;
+            max-height: 1000px;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .section-content.collapsed {
+            max-height: 0;
+        }
+
+        .debug-section {
+            background: #f0f4f8;
+            border-left: 3px solid #667eea;
+            padding: 12px;
+            margin: 10px 0;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+        }
+
+        .step-badge {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-right: 8px;
+        }
+
+        .arguments-grid {
+            display: grid;
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .argument-category {
+            background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+            border-radius: 16px;
+            padding: 25px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.12);
+            border: 2px solid #e2e8f0;
+            transition: all 0.3s ease;
+        }
+
+        .argument-category:hover {
+            box-shadow: 0 12px 35px rgba(0,0,0,0.18);
+            transform: translateY(-2px);
+        }
+
+        .argument-category.support {
+            border-left: 5px solid #10b981;
+            background: linear-gradient(135deg, #ecfdf5 0%, #ffffff 100%);
+        }
+
+        .argument-category.challenge {
+            border-left: 5px solid #f59e0b;
+            background: linear-gradient(135deg, #fffbeb 0%, #ffffff 100%);
+        }
+
+        .category-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #f0f4f8;
+        }
+
+        .category-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        .support .category-icon {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+        }
+
+        .challenge .category-icon {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: white;
+        }
+
+        .category-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: #333;
+        }
+
+        .category-subtitle {
+            font-size: 13px;
+            color: #666;
+            margin-top: 3px;
+        }
+
+        .argument-cards {
+            display: grid;
+            gap: 12px;
+        }
+
+        .argument-card {
+            background: white;
+            border-radius: 12px;
+            padding: 18px;
+            position: relative;
+            transition: all 0.3s ease;
+            border: 2px solid #e2e8f0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+
+        .argument-card:hover {
+            transform: translateX(8px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+            border-color: #cbd5e1;
+        }
+
+        .support .argument-card {
+            border-left: 4px solid #10b981;
+        }
+
+        .support .argument-card:hover {
+            border-left: 4px solid #059669;
+            box-shadow: 0 8px 20px rgba(16, 185, 129, 0.2);
+        }
+
+        .challenge .argument-card {
+            border-left: 4px solid #f59e0b;
+        }
+
+        .challenge .argument-card:hover {
+            border-left: 4px solid #d97706;
+            box-shadow: 0 8px 20px rgba(245, 158, 11, 0.2);
+        }
+
+        .agent-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .agent-icon {
+            font-size: 14px;
+        }
+
+        .evidence-tag {
+            display: inline-block;
+            background: #f1f5f9;
+            color: #475569;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-top: 8px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .cite-reference {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #1e40af;
+            background: #eff6ff;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin: 0 2px;
+        }
+
+        .card-score {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 700;
+            color: white;
+        }
+
+        .card-score.perfect {
+            background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+        }
+
+        .card-score.high {
+            background: linear-gradient(135deg, #10b981, #059669);
+        }
+
+        .card-score.moderate {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+        }
+
+        .card-score.low {
+            background: linear-gradient(135deg, #ef4444, #dc2626);
+        }
+
+        .card-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 8px;
+            padding-right: 70px;
+        }
+
+        .card-content {
+            font-size: 14px;
+            color: #475569;
+            line-height: 1.5;
+        }
+
+        .score {
+            display: inline-block;
+            background: #10b981;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+
+        .score.moderate {
+            background: #f59e0b;
+        }
+
+        .score.low {
+            background: #ef4444;
+        }
+
+        .final-answer {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 16px;
+            margin-top: 20px;
+            box-shadow: 0 10px 30px rgba(30, 60, 114, 0.3);
+            border: 3px solid #3b5998;
+        }
+
+        .final-answer h3 {
+            margin-bottom: 20px;
+            font-size: 22px;
+            font-weight: 700;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.3);
+            padding-bottom: 12px;
+        }
+
+        .final-answer-section {
+            margin: 20px 0;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 18px;
+            border-radius: 10px;
+            border-left: 4px solid #10b981;
+        }
+
+        .final-answer-section h4 {
+            font-size: 17px;
+            margin-bottom: 12px;
+            opacity: 1;
+            font-weight: 700;
+            color: #fbbf24;
+        }
+
+        .reference {
+            background: rgba(255,255,255,0.15);
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin: 8px 0;
+            font-size: 13px;
+            border-left: 3px solid #fbbf24;
+            font-family: 'Courier New', monospace;
+            backdrop-filter: blur(10px);
+            transition: all 0.2s ease;
+        }
+
+        .reference:hover {
+            background: rgba(255,255,255,0.25);
+            transform: translateX(5px);
+        }
+
+        ul {
+            margin-left: 20px;
+            margin-top: 8px;
+        }
+
+        li {
+            margin: 5px 0;
+        }
+
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            background: #f0f4f8;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #667eea;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .debate-badge {
+            display: inline-block;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            margin: 4px;
+        }
+
+        .badge-support {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+        }
+
+        .badge-challenge {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: white;
+            box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+        }
+
+        ::-webkit-scrollbar {
+            width: 10px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+        }
+
+        @media (max-width: 768px) {
+            .chat-container {
+                height: 95vh;
+                border-radius: 12px;
+            }
+
+            .category-header {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .argument-card {
+                padding: 15px;
+            }
+
+            .card-score {
+                position: static;
+                display: inline-block;
+                margin-bottom: 8px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-header">
+            <h1>⚖️ Legal Analysis Assistant</h1>
+            <p>AI-Powered Hearsay Evidence Analysis</p>
+        </div>
+        
+        <div class="chat-messages">
+            <!-- User Query -->
+            <div class="message user">
+                <div class="message-content">
+                    <strong>Analysis Request:</strong><br>
+                    Is the prosecution's witness testimony about hearing Alex making plans to meet with his co-conspirators considered hearsay evidence?
+                </div>
+            </div>
+
+            <!-- Assistant Response - Initial Processing -->
+            <div class="message assistant">
+                <div class="message-content">
+                    <div class="section">
+                        <div class="section-header" onclick="toggleSection(this)">
+                            <span>📚 Legal Research & Document Loading</span>
+                        </div>
+                        <div class="section-content">
+                            <div class="debug-section">
+                                <div><span class="step-badge">STEP 1</span>Loaded collection 'phq8_medical_docs' ✓</div>
+                                <div><span class="step-badge">STEP 2</span>Retrieved 5 relevant documents with references ✓</div>
+                                <div><span class="step-badge">STEP 3</span>Setting options for task: hearsay ✓</div>
+                            </div>
+                            
+                            <p><strong>Understanding the Core Issue: Hearsay</strong></p>
+                            <p>The prosecution's witness testifying about what she <em>heard</em> Alex say is a classic example of hearsay. Hearsay is an out-of-court statement offered in court to prove the truth of the matter asserted.</p>
+                            
+                            <p style="margin-top: 10px;"><strong>Key Legal Concepts:</strong></p>
+                            <ul>
+                                <li>Hearsay Rule</li>
+                                <li>Admissibility of Hearsay</li>
+                                <li>Exceptions to the Hearsay Rule</li>
+                                <li>Federal Rules of Evidence (FRE)</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Assistant Response - Agent Selection -->
+            <div class="message assistant">
+                <div class="message-content">
+                    <div class="section">
+                        <div class="section-header" onclick="toggleSection(this)">
+                            <span>👥 Expert Agent Selection</span>
+                        </div>
+                        <div class="section-content">
+                            <p><strong>Expert Agents Deployed:</strong></p>
+                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-top: 15px;">
+                                <div style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);">
+                                    <div style="font-size: 28px; margin-bottom: 8px;">⚖️</div>
+                                    <div style="font-weight: 700; font-size: 15px;">Prosecutor</div>
+                                    <div style="font-size: 12px; opacity: 0.95; margin-top: 5px;">Criminal law, evidence evaluation, conspiracy charges</div>
+                                </div>
+                                <div style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);">
+                                    <div style="font-size: 28px; margin-bottom: 8px;">🛡️</div>
+                                    <div style="font-weight: 700; font-size: 15px;">Public Defender</div>
+                                    <div style="font-size: 12px; opacity: 0.95; margin-top: 5px;">Criminal defense, testimony admissibility challenges</div>
+                                </div>
+                                <div style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);">
+                                    <div style="font-size: 28px; margin-bottom: 8px;">📚</div>
+                                    <div style="font-weight: 700; font-size: 15px;">Law Clerk</div>
+                                    <div style="font-size: 12px; opacity: 0.95; margin-top: 5px;">Legal research, case analysis, precedent review</div>
+                                </div>
+                                <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);">
+                                    <div style="font-size: 28px; margin-bottom: 8px;">🔍</div>
+                                    <div style="font-weight: 700; font-size: 15px;">Legal Researcher</div>
+                                    <div style="font-size: 12px; opacity: 0.95; margin-top: 5px;">Policy analysis, evidentiary standards review</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Assistant Response - Arguments -->
+           <!-- Assistant Response - Arguments -->
+<div class="message assistant">
+    <div class="message-content">
+        <div class="section">
+            <div class="section-header" onclick="toggleSection(this)">
+                <span>⚖️ Legal Arguments Analysis</span>
+            </div>
+            <div class="section-content">
+                <div class="stats">
+                    <div class="stat-item">
+                        <div class="stat-value">11</div>
+                        <div class="stat-label">Total Arguments</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">4</div>
+                        <div class="stat-label">Expert Agents</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">0.92</div>
+                        <div class="stat-label">Avg Validity Score</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">9</div>
+                        <div class="stat-label">High Confidence</div>
+                    </div>
+                </div>
+
+                <div class="arguments-grid">
+                    <div class="argument-category support">
+                        <div class="category-header">
+                            <div class="category-icon">✓</div>
+                            <div style="flex: 1;">
+                                <div class="category-title">Supporting Position: YES, It's Hearsay</div>
+                                <div class="category-subtitle">Evidence meets hearsay definition • 5 expert arguments</div>
+                                <div style="margin-top: 8px;">
+                                    <span class="debate-badge badge-support">Pro-Hearsay</span>
+                                    <span class="debate-badge badge-support">Defense Position</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="argument-cards">
+                            <div class="argument-card">
+                                <div class="agent-badge"><span class="agent-icon">🛡️</span>Public Defender</div>
+                                <div class="card-score high">0.95</div>
+                                <div class="card-title">🎯 Core Hearsay Definition Met</div>
+                                <div class="card-content">
+                                    The witness testimony constitutes an out-of-court statement offered to prove the truth of the matter asserted, directly satisfying <span class="cite-reference">FRE 801(c)</span>. The statement was made by Alex outside the courtroom and is now being presented to establish the factual truth of his criminal plans.
+                                    <div class="evidence-tag">📖 Evidence: FRE 801(c) - "an out-of-court statement offered to prove truth"</div>
+                                </div>
+                            </div>
+
+                            <div class="argument-card">
+                                <div class="agent-badge"><span class="agent-icon">📚</span>Law Clerk</div>
+                                <div class="card-score perfect">1.00</div>
+                                <div class="card-title">📋 No Applicable Exception Identified</div>
+                                <div class="card-content">
+                                    After thorough analysis, the statement fails to meet criteria for <span class="cite-reference">FRE 803(1)</span> (Present Sense Impression) as it lacks contemporaneous observation, and <span class="cite-reference">FRE 803(2)</span> (Excited Utterance) as there's no evidence of a startling event. The statement was made during ordinary conversation planning.
+                                    <div class="evidence-tag">📖 Evidence: Crawford v. Washington (541 U.S. 36) - Confrontation Clause protections</div>
+                                </div>
+                            </div>
+
+                            <div class="argument-card">
+                                <div class="agent-badge"><span class="agent-icon">🛡️</span>Public Defender</div>
+                                <div class="card-score high">0.92</div>
+                                <div class="card-title">⚠️ Presumptive Inadmissibility</div>
+                                <div class="card-content">
+                                    Under <span class="cite-reference">FRE 802</span>, hearsay is inadmissible unless an exception applies. The prosecution bears the burden of proving an exception exists. Without meeting the <span class="cite-reference">FRE 801(d)(2)</span> party-opponent admission requirements or other exceptions, this testimony should be excluded to protect defendant's rights.
+                                    <div class="evidence-tag">📖 Evidence: FRE 802 - "Hearsay is not admissible" (default rule)</div>
+                                </div>
+                            </div>
+
+                            <div class="argument-card">
+                                <div class="agent-badge"><span class="agent-icon">🔍</span>Legal Researcher</div>
+                                <div class="card-score high">0.93</div>
+                                <div class="card-title">🔍 Confrontation Clause Violation Risk</div>
+                                <div class="card-content">
+                                    Alex was not available for cross-examination when making the original statement, violating the Sixth Amendment's Confrontation Clause. This testimonial evidence requires the declarant's presence for credibility assessment and effective cross-examination per <em>Crawford v. Washington</em> standards.
+                                    <div class="evidence-tag">📖 Evidence: Sixth Amendment + Crawford v. Washington (2004)</div>
+                                </div>
+                            </div>
+
+                            <div class="argument-card">
+                                <div class="agent-badge"><span class="agent-icon">⚖️</span>Prosecutor</div>
+                                <div class="card-score high">0.88</div>
+                                <div class="card-title">🎭 Purpose Test Analysis</div>
+                                <div class="card-content">
+                                    The prosecution's primary purpose in offering this testimony is to prove Alex actually had criminal plans, not merely to show he made the statement. This proves the statement is being offered for its truth value, satisfying the critical "truth of the matter asserted" element of hearsay under <span class="cite-reference">FRE 801(c)</span>.
+                                    <div class="evidence-tag">📖 Evidence: United States v. Zenni (492 F. Supp. 464) - Purpose analysis</div>
+                                </div>
+                            </div>
+
+                            <!-- ✅ Added Supporting Argument -->
+                            <div class="argument-card">
+                                <div class="agent-badge"><span class="agent-icon">⚖️</span>Evidence Analyst</div>
+                                <div class="card-score high">0.91</div>
+                                <div class="card-title">🧩 Argument A: Independent Verification Absent</div>
+                                <div class="card-content">
+                                    - Evidence 1: The testimony relies solely on Alex’s out-of-court statement without corroborating physical or documentary proof, meaning its reliability cannot be independently confirmed.<br>
+                                    - Evidence 2: No contemporaneous record (e.g., recording or written plan) supports the accuracy of the statement, reinforcing its classification as classic hearsay.
+                                    <div class="evidence-tag">📖 Evidence: FRE 104(a) - Court determines admissibility based on reliability</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="argument-category challenge">
+                        <div class="category-header">
+                            <div class="category-icon">⚡</div>
+                            <div style="flex: 1;">
+                                <div class="category-title">Challenging Position: Exceptions Apply</div>
+                                <div class="category-subtitle">Statement may be admissible despite hearsay • 6 expert arguments</div>
+                                <div style="margin-top: 8px;">
+                                    <span class="debate-badge badge-challenge">Anti-Hearsay</span>
+                                    <span class="debate-badge badge-challenge">Prosecution Position</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="argument-cards">
+                            <div class="argument-card">
+                                <div class="agent-badge"><span class="agent-icon">⚖️</span>Prosecutor</div>
+                                <div class="card-score perfect">1.00</div>
+                                <div class="card-title">👤 Party-Opponent Admission Exception</div>
+                                <div class="card-content">
+                                    Under <span class="cite-reference">FRE 801(d)(2)(A)</span>, Alex's own statement offered against him qualifies as an admission by a party-opponent and is <strong>NOT hearsay</strong>. The Federal Rules explicitly exclude party admissions from the hearsay definition. If Alex made this statement himself, it's admissible regardless of hearsay concerns.
+                                    <div class="evidence-tag">📖 Evidence: FRE 801(d)(2)(A) - "The statement is offered against an opposing party"</div>
+                                </div>
+                            </div>
+
+                            <div class="argument-card">
+                                <div class="agent-badge"><span class="agent-icon">⚖️</span>Prosecutor</div>
+                                <div class="card-score high">0.95</div>
+                                <div class="card-title">🤝 Co-Conspirator Statement</div>
+                                <div class="card-content">
+                                    <span class="cite-reference">FRE 801(d)(2)(E)</span> permits statements made by co-conspirators during and in furtherance of the conspiracy. Alex's planning discussion with co-conspirators directly advances the conspiracy's objectives. This exception requires: (1) conspiracy existence, (2) statement during conspiracy, (3) statement in furtherance of conspiracy.
+                                    <div class="evidence-tag">📖 Evidence: Bourjaily v. United States (483 U.S. 171) - Co-conspirator exception</div>
+                                </div>
+                            </div>
+
+                            <div class="argument-card">
+                                <div class="agent-badge"><span class="agent-icon">📚</span>Law Clerk</div>
+                                <div class="card-score high">0.90</div>
+                                <div class="card-title">📚 Statement Against Interest</div>
+                                <div class="card-content">
+                                    Under <span class="cite-reference">FRE 804(b)(3)</span>, if Alex is unavailable as a witness, his statement planning to meet co-conspirators is against his penal interest. Admitting involvement in a criminal conspiracy exposes him to criminal liability, making the statement inherently reliable and qualifying for this exception.
+                                    <div class="evidence-tag">📖 Evidence: FRE 804(b)(3) - Statement Against Interest Exception</div>
+                                </div>
+                            </div>
+
+                            <div class="argument-card">
+                                <div class="agent-badge"><span class="agent-icon">🔍</span>Legal Researcher</div>
+                                <div class="card-score high">0.87</div>
+                                <div class="card-title">💭 State of Mind Exception</div>
+                                <div class="card-content">
+                                    <span class="cite-reference">FRE 803(3)</span> allows statements showing the declarant's then-existing state of mind, plan, or intent. Alex's statement demonstrates his criminal intent and future plans. Case law from <em>Mutual Life Ins. Co. v. Hillmon</em> (145 U.S. 285) supports admissibility of statements of intent to perform future acts.
+                                    <div class="evidence-tag">📖 Evidence: FRE 803(3) + Hillmon doctrine (intent to do future act)</div>
+                                </div>
+                            </div>
+
+                            <div class="argument-card">
+                                <div class="agent-badge"><span class="agent-icon">🛡️</span>Public Defender</div>
+                                <div class="card-score moderate">0.82</div>
+                                <div class="card-title">🔄 Non-Hearsay Purpose Argument</div>
+                                <div class="card-content">
+                                    The statement could be offered not for its truth, but to show <em>notice</em>, <em>knowledge</em>, or the <em>effect on the listener</em>. If prosecution merely seeks to establish that certain words were spoken (circumstantial evidence of conspiracy), rather than the truth of the plans, it falls outside hearsay definition per <span class="cite-reference">FRE 801(c)</span> analysis.
+                                    <div class="evidence-tag">📖 Evidence: Non-hearsay purposes - effect on listener, notice, context</div>
+                                </div>
+                            </div>
+
+                            <div class="argument-card">
+                                <div class="agent-badge"><span class="agent-icon">⚖️</span>Prosecutor</div>
+                                <div class="card-score high">0.85</div>
+                                <div class="card-title">🔍 Contextual Ambiguity Defense</div>
+                                <div class="card-content">
+                                    The term "plans to meet with co-conspirators" requires contextual interpretation. If the "plans" reference legitimate business meetings or social gatherings, the statement lacks criminal nature. The defense must show ambiguity in the statement's meaning, potentially negating its value as hearsay evidence of criminal conduct.
+                                    <div class="evidence-tag">📖 Evidence: Rule of lenity - ambiguous statements construed in favor of defendant</div>
+                                </div>
+                            </div>
+
+                            <!-- ✅ Added Challenging Argument -->
+                            <div class="argument-card">
+                                <div class="agent-badge"><span class="agent-icon">📊</span>Evidence Analyst</div>
+                                <div class="card-score high">0.89</div>
+                                <div class="card-title">🧩 Argument A: Statement for Operational Context</div>
+                                <div class="card-content">
+                                    - Evidence 1: The testimony clarifies coordination logistics, not the truth of any criminal plan, suggesting a functional, non-hearsay purpose.<br>
+                                    - Evidence 2: The statement’s probative value lies in showing communication patterns within a group under investigation, admissible as contextual background rather than proof of guilt.
+                                    <div class="evidence-tag">📖 Evidence: FRE 403 balancing test – probative vs. prejudicial value</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+            <!-- Final Answer -->
+            <div class="message assistant">
+                <div class="message-content">
+                    <div class="final-answer">
+                        <h3>📋 Comprehensive Legal Analysis & Final Determination</h3>
+                        
+                        <div class="final-answer-section">
+                            <h4>1. 🎯 Primary Conclusion</h4>
+                            <p><strong style="font-size: 18px; color: #fbbf24;">TECHNICALLY YES - The testimony qualifies as hearsay under FRE 801(c)</strong></p>
+                            <p style="margin-top: 12px; line-height: 1.7;">
+                                The prosecution's witness is testifying about a statement made by Alex outside the courtroom, and this statement is being offered to prove the truth of the matter asserted – specifically, that Alex was actively participating in a criminal conspiracy. This satisfies all three elements of hearsay: (1) a statement, (2) made out of court, (3) offered to prove the truth of the matter asserted.
+                            </p>
+                            <p style="margin-top: 10px; line-height: 1.7; font-style: italic; opacity: 0.95;">
+                                <strong>However</strong>, the statement likely qualifies for the <strong>party-opponent admission exception</strong> under FRE 801(d)(2)(A), which means it would be admissible despite being hearsay, effectively treated as "not hearsay" by definition.
+                            </p>
+                        </div>
+
+                        <div class="final-answer-section">
+                            <h4>2. 🔍 Critical Analysis - Why It's Hearsay</h4>
+                            <ul style="line-height: 1.8;">
+                                <li><strong>✓ Element #1 - Out-of-Court Statement:</strong> Alex made the statement about meeting co-conspirators outside the formal trial setting, during private conversation or planning.</li>
+                                <li><strong>✓ Element #2 - Offered for Truth:</strong> The prosecution's clear purpose is to prove Alex actually had criminal intent and plans, not merely that words were spoken.</li>
+                                <li><strong>✓ Element #3 - Reliability Concerns:</strong> Alex was not under oath when making the statement and is not available for immediate cross-examination regarding the statement's context, meaning, or truthfulness.</li>
+                                <li><strong>✓ Confrontation Clause:</strong> Per <em>Crawford v. Washington</em> (541 U.S. 36), testimonial statements require the opportunity for cross-examination to satisfy Sixth Amendment protections.</li>
+                            </ul>
+                        </div>
+
+                        <div class="final-answer-section">
+                            <h4>3. ⚖️ Most Viable Exception - Party-Opponent Admission</h4>
+                            <p style="line-height: 1.7;">
+                                <strong>FRE 801(d)(2)(A) Application:</strong> If Alex's statement is offered against him by the prosecution (the opposing party), it qualifies as a party-opponent admission and is <strong>explicitly excluded from the hearsay definition</strong>. This is the strongest and most straightforward exception applicable to these facts.
+                            </p>
+                            <p style="margin-top: 10px; line-height: 1.7;">
+                                <strong>Alternative Exception - Co-Conspirator Statement:</strong> Under FRE 801(d)(2)(E), statements made by co-conspirators during and in furtherance of the conspiracy are also not hearsay. If the prosecution can establish (1) a conspiracy existed, (2) Alex was a member, and (3) the statement was made to advance the conspiracy, this exception applies.
+                            </p>
+                            <p style="margin-top: 10px; line-height: 1.7;">
+                                <strong>State of Mind Exception:</strong> FRE 803(3) permits statements of the declarant's then-existing state of mind or intent. Under the <em>Hillmon doctrine</em> (145 U.S. 285), statements of intent to perform a future act are admissible to prove that act was performed.
+                            </p>
+                        </div>
+
+                        <div class="final-answer-section">
+                            <h4>4. 🛡️ Defense Counter-Arguments</h4>
+                            <ul style="line-height: 1.8;">
+                                <li><strong>Ambiguity of "Plans":</strong> Defense could argue "meeting co-conspirators" is prosecution's characterization; the actual statement might have referenced innocent business or social meetings.</li>
+                                <li><strong>Lack of Foundation:</strong> Defense may challenge whether proper foundation was laid to prove Alex actually made the statement or whether the witness accurately recalls the statement.</li>
+                                <li><strong>Prejudicial vs. Probative Value:</strong> Under FRE 403, even if admissible, the statement could be excluded if its prejudicial effect substantially outweighs probative value.</li>
+                            </ul>
+                        </div>
+
+                        <div class="final-answer-section" style="border-left-color: #ef4444;">
+                            <h4>5. 📚 Complete Legal References</h4>
+                            <div class="reference">📖 Federal Rules of Evidence, Rule 801(c) - Definition of Hearsay</div>
+                            <div class="reference">📖 Federal Rules of Evidence, Rule 801(d)(2)(A) - Party-Opponent Admission</div>
+                            <div class="reference">📖 Federal Rules of Evidence, Rule 801(d)(2)(E) - Co-Conspirator Statement</div>
+                            <div class="reference">📖 Federal Rules of Evidence, Rule 802 - Hearsay Rule (inadmissibility)</div>
+                            <div class="reference">📖 Federal Rules of Evidence, Rule 803(3) - State of Mind Exception</div>
+                            <div class="reference">📖 Federal Rules of Evidence, Rule 804(b)(3) - Statement Against Interest</div>
+                            <div class="reference">📖 Crawford v. Washington, 541 U.S. 36 (2004) - Confrontation Clause</div>
+                            <div class="reference">📖 Bourjaily v. United States, 483 U.S. 171 (1987) - Co-conspirator statements</div>
+                            <div class="reference">📖 Mutual Life Ins. Co. v. Hillmon, 145 U.S. 285 (1892) - State of mind doctrine</div>
+                            <div class="reference">📖 United States v. Zenni, 492 F. Supp. 464 (E.D. Ky. 1980) - Purpose test</div>
+                        </div>
+
+                        <div class="final-answer-section" style="background: rgba(251, 191, 36, 0.2); border-left-color: #fbbf24;">
+                            <h4>6. 🎓 Final Verdict</h4>
+                            <p style="line-height: 1.8; font-size: 15px;">
+                                <strong>Conclusion:</strong> While the witness testimony <em>technically meets the definition of hearsay</em>, it is <strong>highly likely to be admissible</strong> under the party-opponent admission exception (FRE 801(d)(2)(A)) or the co-conspirator exception (FRE 801(d)(2)(E)). The court would admit this evidence, effectively treating it as "not hearsay" under federal rules.
+                            </p>
+                            <p style="margin-top: 10px; opacity: 0.95; line-height: 1.7;">
+                                <strong>Practical Outcome:</strong> Defense counsel should object on hearsay grounds, but the objection will likely be <em>overruled</em> once the prosecution demonstrates the statement is being offered against the party who made it (Alex).
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function toggleSection(header) {
+            header.classList.toggle('collapsed');
+            const content = header.nextElementSibling;
+            content.classList.toggle('collapsed');
+        }
+
+        // Auto-scroll to bottom
+        const chatMessages = document.querySelector('.chat-messages');
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    </script>
+</body>
+</html>
