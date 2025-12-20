@@ -1,4 +1,8 @@
 import unittest
+import sys
+import json
+import csv
+from datetime import datetime
 from state import Argument, GraphState
 from node import (
     rag_retrieval,
@@ -11,33 +15,90 @@ from node import (
     final_answer_generator
 )
 
+TSV_PATH = "data/hearsay/test.tsv"
+
+
 class TestFullLegalWorkflow(unittest.TestCase):
-    def setUp(self):
-        self.state = {
-            'task_name': 'hearsay',
-            'task_info': 'Alex is being prosecuted for participation in a criminal conspiracy. To prove that Alex participated in the conspiracy, the prosecution\'s witness testifies that she heard Alex making plans to meet with his co-conspirators.',
-            'enable_streaming': False
+
+    def run_single_sample(self, task_info: str, sample_index: int):
+        """
+        Run full workflow for one sample and return serializable result
+        """
+        state = {
+            "task_name": "hearsay",
+            "task_info": task_info,
+            "enable_streaming": False
         }
 
-    def test_full_workflow(self):
-        state = self.state.copy()
-        # Step 1: Retrieval
+        # === Workflow ===
         state = rag_retrieval(state)
-        # Step 2: Options
         state = overall_options(state)
-        # Step 3: Agent selection
-        state = agent_selector(state, 'support')
-        state = agent_selector(state, 'attack')
-        # Step 4: Argument generation
+        state = agent_selector(state, "support")
+        state = agent_selector(state, "attack")
         state = multi_agent_argument_generator(state)
-        # Step 5: Human review (simulate complete)
-        state = human_review(state)
-        route = route_after_human_review(state)
-        # Step 6: Argument validation
-        state = argument_validator(state)
-        # Step 7: Final answer
-        state = final_answer_generator(state)
-        print('\nFinal Answer:', state['final_answer']['answer'])
 
-if __name__ == '__main__':
-    unittest.main()
+        state = human_review(state)
+        state["human_review_complete"] = True
+        route_after_human_review(state)
+
+        state = argument_validator(state)
+        state = final_answer_generator(state)
+
+        # === Serialize result ===
+        result = {
+            "sample_index": sample_index,
+            "task_name": state.get("task_name"),
+            "task_info": state.get("task_info"),
+            "final_answer": state.get("final_answer", {}),
+            "options": state.get("options", []),
+            "retrieved_documents_count": len(state.get("retrieved_documents", [])),
+            "arguments": [],
+            "validated_arguments": []
+        }
+
+        for arg in state.get("arguments", []):
+            result["arguments"].append({
+                "content": arg.content,
+                "type": arg.argument_type,
+                "parent_option": arg.parent_option,
+                "agent_role": getattr(arg, "agent_role", None),
+                "agent_name": getattr(arg, "agent_name", None)
+            })
+
+        for arg in state.get("validated_arguments", []):
+            result["validated_arguments"].append({
+                "content": arg.content,
+                "type": arg.argument_type,
+                "parent_option": arg.parent_option,
+                "validity_score": getattr(arg, "validity_score", None),
+                "agent_role": getattr(arg, "agent_role", None),
+                "agent_name": getattr(arg, "agent_name", None),
+                "supporting_docs": getattr(arg, "supporting_docs", [])
+            })
+
+        return result
+
+    def test_inference_from_tsv(self):
+        all_results = []
+
+        with open(TSV_PATH, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f, delimiter="\t")
+            for row in reader:
+                sample_index = int(row["index"])
+                task_info = row["text"]
+
+                print(f"\nRunning sample index: {sample_index}")
+                result = self.run_single_sample(task_info, sample_index)
+                all_results.append(result)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_file = f"workflow_results_all_{timestamp}.json"
+
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(all_results, f, indent=2, ensure_ascii=False)
+
+        print(f"\nSaved all results to: {output_file}")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

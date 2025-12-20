@@ -493,37 +493,55 @@ def final_answer_generator(state: GraphState) -> GraphState:
     # """
     if task_name == "hearsay":
         prompt += """
-        For every question, you must internally run a structured chain-of-thought analysis, but **never reveal it**.
-Only output the final JSON answer.
-### Internal reasoning steps (not shown to user):
-1. Determine whether there is a statement.
-2. Determine whether the statement is out-of-court.
-3. Determine whether it is offered to prove the truth of the matter asserted.
-4. If it is hearsay, check whether it is excluded.
-5. If still hearsay, evaluate applicable exceptions or exceptions requiring unavailability.
-6. Conclude whether the evidence is hearsay or not.
+You are a legal reasoning assistant specialized in Evidence Law.
 
-### Your response behavior:
+TASK:
+Determine whether the described evidence is hearsay under U.S. evidence law.
 
-* Never reveal chain-of-thought reasoning.
-* Only return the final conclusion + short explanation in JSON.
-* Follow the style demonstrated in the examples.
+CASE DESCRIPTION:
+{task_info}
 
-### Format for all answers (Few-shot samples):
-Q: On the issue of whether David is fast, the fact that David set a high school track record. Is there hearsay?
-A: No
+REFERENCE MATERIAL (for citation only, do not rely on arguments below):
+{rag_context}
 
-Q: On the issue of whether Rebecca was ill, the fact that Rebecca told Ronald that she was unwell. Is there hearsay?
-A: Yes
+IMPORTANT REASONING RULES (internal only):
+You must internally analyze the issue using the following mandatory steps, in order:
+1. Identify whether the evidence involves a "statement" (oral, written, or nonverbal assertion).
+2. Determine whether the statement was made out of court.
+3. Determine whether the statement is offered to prove the truth of the matter asserted.
+4. If yes, determine whether it is defined as non-hearsay (e.g., verbal acts, effect on listener, prior statements, opposing party statements).
+5. If still hearsay, determine whether a recognized exception applies.
+6. Reach a final conclusion.
 
-Q: To prove that Tim was a soccer fan, the fact that Tim told Jimmy that "Real Madrid was the best soccer team in the world." Is there hearsay?
-A: No
+You MUST complete all steps internally, but you MUST NOT reveal them.
 
-Q: When asked by the attorney on cross-examination, Alice testified that she had "never seen the plaintiff before, and had no idea who she was." Is there hearsay?
-A: No
+OUTPUT CONSTRAINTS:
+- Do NOT explain step-by-step reasoning.
+- Do NOT discuss arguments, balancing, or policy.
+- Do NOT mention chain-of-thought.
+- Do NOT mention agent opinions.
 
-Q: On the issue of whether Martin punched James, the fact that Martin smiled and nodded when asked if he did so by an officer on the scene. Is there hearsay?
-A: Yes
+OUTPUT FORMAT (STRICT):
+Return ONLY valid JSON in this exact structure:
+
+{
+  "answer": "Yes" or "No",
+  "explanation": "2–3 concise sentences stating the legal conclusion and briefly why, citing relevant authority using [REF-X] where appropriate."
+}
+
+STYLE GUIDELINES:
+- Be decisive and doctrinal.
+- Use precise evidence-law language.
+- If the evidence is not offered for its truth, clearly say so.
+- Cite at most 1–2 references.
+
+EXAMPLES (for style only):
+
+Evidence: On the issue of whether David is fast, the fact that David set a high school track record.
+Answer: No
+
+Evidence: On the issue of whether Rebecca was ill, the fact that Rebecca told Ronald that she was unwell.
+Answer: Yes
 
     
     """
