@@ -3,12 +3,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 import numpy as np
 
 # Load file với tất cả các cột
-df = pd.read_csv("answers/hearsay/mad_gpt_hearsay.tsv", sep='\t')
-
-# Kiểm tra các cột có trong file
-print("Columns in file:", df.columns.tolist())
-print(f"\nTotal rows: {len(df)}")
-print(f"First few rows:\n{df.head()}\n")
+df = pd.read_csv("answers/hearsay/ours_hearsay.tsv", sep='\t')
 
 # Chuẩn hóa các giá trị Yes/No (uppercase)
 df['gold_answer'] = df['gold_answer'].str.strip().str.capitalize()
@@ -70,17 +65,11 @@ print("=" * 60)
 print(classification_report(y_true, y_pred, digits=4, zero_division=0))
 
 # Thống kê chi tiết
+# IN RA INDEX DỰ ĐOÁN SAI
+# =========================
+wrong_mask = y_true != y_pred
+wrong_df = df_valid.loc[wrong_mask, ['index', 'gold_answer', 'final_answer', 'text']]
+
+print("\n" + "=" * 60)
+print("WRONG PREDICTIONS (INDEX LIST)")
 print("=" * 60)
-print("STATISTICS")
-print("=" * 60)
-print(f"Total samples in file:     {len(df)}")
-print(f"Valid samples (non-null):  {len(df_valid)}")
-print(f"Failed samples (null):     {null_count}")
-print()
-print(f"Gold 'Yes':                {(y_true == 'Yes').sum()}")
-print(f"Gold 'No':                 {(y_true == 'No').sum()}")
-print(f"Predicted 'Yes':           {(y_pred == 'Yes').sum()}")
-print(f"Predicted 'No':            {(y_pred == 'No').sum()}")
-print()
-print(f"Correct predictions:       {(y_true == y_pred).sum()}")
-print(f"Wrong predictions:         {(y_true != y_pred).sum()}")
