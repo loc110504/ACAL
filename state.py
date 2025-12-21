@@ -13,6 +13,11 @@ class Argument:
     supporting_docs: List[Dict[str, Any]] = field(default_factory=list)
     agent_role: Optional[str] = None
     agent_name: Optional[str] = None
+    
+    # QBAF-related fields
+    llm_validity_score: Optional[float] = None  # Original LLM score before QBAF
+    qbaf_support_impact: Optional[float] = None  # Impact from supporting arguments
+    qbaf_attack_impact: Optional[float] = None   # Impact from attacking arguments
 	
 	# metadata: Optional[Dict[str, Any]] = None
 
@@ -55,7 +60,12 @@ class GraphState(TypedDict, total=False):
     current_validation_stream: Optional[str]
     streaming_chunk: Optional[str]
     partial_response: Optional[str]
-    rag_progress: Optional[str] 
+    rag_progress: Optional[str]
+    
+    # QBAF scoring results
+    qbaf_option_scores: Optional[Dict[str, Dict[str, float]]]  # Option-level scores from QBAF
+    qbaf_graph_export: Optional[Dict[str, Any]]  # Graph structure for visualization
+    
     # Scheduling (optional)
     scheduling_query: Optional[Dict[str, Any]]
     scheduling_slots: Optional[Dict[str, List[Dict[str, Any]]]]

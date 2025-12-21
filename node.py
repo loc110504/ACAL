@@ -2,7 +2,8 @@ from state import Argument, GraphState
 from llm_caller import call_llm, call_llm_stream
 import re
 import json
-
+import random
+from qbaf_scorer import apply_qbaf_scoring
 from legal_agents import LEGAL_AGENTS
 from test import RAGModule
 
@@ -435,6 +436,36 @@ def argument_validator(state: GraphState) -> GraphState:
     print(f"  Moderate (0.5-0.8): {sum(1 for arg in validated_arguments if 0.5 <= getattr(arg, 'validity_score', 0) <= 0.8)}")
     print(f"  Low validity (<0.5): {sum(1 for arg in validated_arguments if getattr(arg, 'validity_score', 0) < 0.5)}")
 
+    # ============ QBAF SCORING INTEGRATION ============
+    print("\n[QBAF] Applying QBAF-based argument scoring...")
+    
+    # Choose semantics based on task - df_quad is most sophisticated
+    qbaf_semantics = "df_quad"
+    # Alternative options: "weighted_sum", "weighted_product", "euler_based"
+    
+    # Choose relation identification method
+    # Option 1: Fast heuristic (use_semantic_analysis=False) - based on Yes/No labels
+    # Option 2: Semantic analysis (use_semantic_analysis=True) - LLM-based NLI, slower but more accurate
+    use_semantic_analysis = False  # Set to True to enable semantic analysis
+    
+    task_context = f"{state.get('task_name', '')}: {state.get('task_info', '')}"
+    
+    # Apply QBAF scoring
+    validated_arguments, option_scores, qbaf_scorer = apply_qbaf_scoring(
+        validated_arguments, 
+        semantics=qbaf_semantics,
+        use_semantic_analysis=use_semantic_analysis,
+        task_context=task_context
+    )
+    
+    # Store QBAF results in state for later use
+    state["qbaf_option_scores"] = option_scores
+    state["qbaf_graph_export"] = qbaf_scorer.export_for_visualization()
+    
+    print(f"[QBAF] Scoring complete using {qbaf_semantics} semantics")
+    print(f"[QBAF] Relation method: {'Semantic (LLM-based NLI)' if use_semantic_analysis else 'Heuristic (rule-based)'}")
+    # ================================================
+
     return state
 
 def final_answer_generator(state: GraphState) -> GraphState:
@@ -445,6 +476,7 @@ def final_answer_generator(state: GraphState) -> GraphState:
     rag_context = state.get("rag_context", "")
     task_name = state.get("task_name", "")
     task_info = state.get("task_info", "")
+    qbaf_scores = state.get("qbaf_option_scores", {})  # NEW: Get QBAF scores
 
     # Organize arguments by option and type
     arguments_by_option = {opt: {"support": [], "attack": []} for opt in options}
@@ -460,28 +492,38 @@ def final_answer_generator(state: GraphState) -> GraphState:
 
     {rag_context}
 
-    Options and Validated Arguments:
+    QBAF-COMPUTED OPTION SCORES (Mathematical Argumentation Framework):
     """
+    
+    # ADD QBAF scores to prompt
+    for option, scores in qbaf_scores.items():
+        prompt += f"""
+    {option}: QBAF Score = {scores['average_score']:.3f} (Total: {scores['total_score']:.3f} from {scores['count']} arguments)"""
+    
+    prompt += "\n\nDetailed Arguments:\n"
+    
     for option in options:
         prompt += f"\nOption: {option}"
         support_args = arguments_by_option[option]["support"]
         if support_args:
             prompt += "\n  Support arguments:"
-            for arg in sorted(support_args, key=lambda x: getattr(x, "validity_score", 0) or 0.0, reverse=True):
-                score = getattr(arg, 'validity_score', 0)
-                if score is None:
-                    score = 0.0
-                prompt += f"\n    - [{score:.2f}] {arg.content}"
+            # RANDOMIZE to remove position bias
+            random.shuffle(support_args)
+            for arg in support_args:
+                score = getattr(arg, 'validity_score', 0) or 0.0
+                llm_score = getattr(arg, 'llm_validity_score', 0) or 0.0
+                prompt += f"\n    - [QBAF:{score:.2f}|LLM:{llm_score:.2f}] {arg.content}"
                 if hasattr(arg, "supporting_docs") and arg.supporting_docs:
                     prompt += " (Evidence cited)"
         attack_args = arguments_by_option[option]["attack"]
         if attack_args:
             prompt += "\n  Challenge arguments:"
-            for arg in sorted(attack_args, key=lambda x: getattr(x, "validity_score", 0) or 0.0, reverse=True):
-                score = getattr(arg, 'validity_score', 0)
-                if score is None:
-                    score = 0.0
-                prompt += f"\n    - [{score:.2f}] {arg.content}"
+            # RANDOMIZE to remove position bias
+            random.shuffle(attack_args)
+            for arg in attack_args:
+                score = getattr(arg, 'validity_score', 0) or 0.0
+                llm_score = getattr(arg, 'llm_validity_score', 0) or 0.0
+                prompt += f"\n    - [QBAF:{score:.2f}|LLM:{llm_score:.2f}] {arg.content}"
 
     # prompt += """
     # Based on the above, provide:
@@ -549,7 +591,7 @@ You are a professional legal reasoning assistant.
     OUTPUT REQUIREMENTS:
     - Output JSON only
     - Explanation must be 2–3 sentences
- blob:https://www.facebook.com/bb34055f-5ddd-4a52-bf0e-b0cade031942   - Explanation must cite concrete cues from the post text
+    - Explanation must cite concrete cues from the post text
 
     FEW-SHOT EXAMPLES:
 
@@ -574,27 +616,29 @@ You are a professional legal reasoning assistant.
     
     
     prompt += f"""
-    Based on the above, provide your response in the following JSON format ONLY:
+    Based on the above QBAF scores and detailed arguments, provide your response in the following JSON format ONLY:
     {{
         "answer": "Yes" or "No",
-        "explanation": "2-3 sentences explaining your answer and citing relevant legal documents using [REF-X] format where appropriate."
+        "explanation": "2-3 sentences explaining your answer. Reference the QBAF scores and cite relevant legal documents using [REF-X] format where appropriate.",
     }}
     
     Requirements:
-    1. Choose the most legally justified answer (Yes or No based on the options: {', '.join(options)})
-    2. Explanation must be 2-3 sentences
-    3. Include relevant document citations using [REF-X] format
-    4. Return ONLY valid JSON, no additional text
+    1. Consider the QBAF average scores as primary indicators - higher score = stronger option
+    2. QBAF scores already factor in all attack/support relations through graph convergence
+    3. LLM scores show initial assessment; QBAF scores show final strength after argumentative interactions
+    4. Explanation must be 2-3 sentences
+    5. Include relevant document citations using [REF-X] format
+    6. Return ONLY valid JSON, no additional text
     """
 
     if state.get("enable_streaming", False):
         response_chunks = []
-        for chunk in call_llm_stream(prompt, temperature=0.7, max_tokens=1024):
+        for chunk in call_llm_stream(prompt, temperature=0.3, max_tokens=1024):
             response_chunks.append(chunk)
             state["final_answer_stream"] = "".join(response_chunks)
         response = "".join(response_chunks)
     else:
-        response = call_llm(prompt, temperature=0.7, max_tokens=1024)
+        response = call_llm(prompt, temperature=0.3, max_tokens=1024)
 
     # Extract cited document references
     cited_refs = re.findall(r"\[REF-(\d+)\]", response)
