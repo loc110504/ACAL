@@ -3,10 +3,10 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 import numpy as np
 
 # Load file với tất cả các cột
-df = pd.read_csv("answers/hearsay/ours_hearsay.tsv", sep='\t')
+df = pd.read_csv("answers/hearsay/result_final.tsv", sep='\t')
 
 # Chuẩn hóa các giá trị Yes/No (uppercase)
-df['gold_answer'] = df['gold_answer'].str.strip().str.capitalize()
+df['golden_answer'] = df['golden_answer'].str.strip().str.capitalize()
 df['final_answer'] = df['final_answer'].str.strip().str.capitalize()
 
 # Xử lý các giá trị null trong final_answer
@@ -17,8 +17,8 @@ if null_count > 0:
 else:
     df_valid = df
 
-# Lấy cột gold_answer và final_answer
-y_true = df_valid['gold_answer']
+# Lấy cột golden_answer và final_answer
+y_true = df_valid['golden_answer']
 y_pred = df_valid['final_answer']
 
 # Tính các metrics
@@ -68,7 +68,7 @@ print(classification_report(y_true, y_pred, digits=4, zero_division=0))
 # IN RA INDEX DỰ ĐOÁN SAI
 # =========================
 wrong_mask = y_true != y_pred
-wrong_df = df_valid.loc[wrong_mask, ['index', 'gold_answer', 'final_answer', 'text']]
+wrong_df = df_valid.loc[wrong_mask, ['index', 'golden_answer', 'final_answer', 'text']]
 
 print("\n" + "=" * 60)
 print("WRONG PREDICTIONS (INDEX LIST)")

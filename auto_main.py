@@ -15,7 +15,7 @@ from node import (
     final_answer_generator
 )
 
-TSV_PATH = "data/hearsay/test.tsv"
+TSV_PATH = "data/learned_hands_courts/test.tsv"
 
 
 class TestFullLegalWorkflow(unittest.TestCase):
@@ -25,7 +25,7 @@ class TestFullLegalWorkflow(unittest.TestCase):
         Run full workflow for one sample and return serializable result
         """
         state = {
-            "task_name": "hearsay",
+            "task_name": "learned hands courts",
             "task_info": task_info,
             "enable_streaming": False
         }
