@@ -26,7 +26,8 @@ class GraphState(TypedDict, total=False):
     # Core task/case data
     task_name: str  # hearsay / learned_hands_courts
     task_info: str  # main input 
-    options: List[str] # yes/no options
+    claim: str  # The central thesis/claim for QBAF (e.g., "This is hearsay")
+    options: List[str] # yes/no options (legacy, for display)
     arguments: List[Argument]
     validated_arguments: List[Argument]
     final_answer: Optional[str]

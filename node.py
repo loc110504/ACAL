@@ -96,7 +96,17 @@ def rag_retrieval(state: GraphState) -> GraphState:
 
 def overall_options(state: GraphState) -> GraphState:
     print("[STEP] overall_options: Setting options for task:", state.get('task_name'))
-    # Hearsay, Learned Hands, etc. all have Yes/No options
+    # Set the central CLAIM for QBAF based on task type
+    task_name = state.get('task_name', '').lower()
+    
+    if task_name == 'hearsay':
+        state["claim"] = "The statement in question constitutes hearsay"
+    elif task_name == 'learned hands courts' or task_name == 'learned_hands_courts':
+        state["claim"] = "This legal question relates to logistics about courts, lawyers, and the legal process itself"
+    else:
+        state["claim"] = "The legal position should be affirmed"
+    
+    # Yes/No options for final answer display
     options = ["Yes", "No"]
     state["options"] = options
     state["current_step"] = "argument_generation"
@@ -127,11 +137,11 @@ def agent_selector(state: GraphState, type: str) -> GraphState:
         "selected_agents": [
             {{
                 "role": "Private Practice Lawyer",
-                "reason": "Why this professional is essential for this patient"
+                "reason": "Why this professional is essential for this case"
             }},
             {{
                 "role": "Corporate / In-house Counsel",
-                "reason": "Why this professional is essential for this patient"
+                "reason": "Why this professional is essential for this case"
             }}
             ...
         ]
@@ -164,127 +174,135 @@ def agent_selector(state: GraphState, type: str) -> GraphState:
     return state
 
 def multi_agent_argument_generator(state: GraphState) -> GraphState:
-    print("[STEP] multi_agent_argument_generator: Generating arguments for options:", state.get('options', []))
+    """
+    Generate arguments that SUPPORT or ATTACK the central CLAIM directly.
+    
+    Standard QBAF model:
+    - Central claim (e.g., "This is hearsay")
+    - Support arguments: evidence/reasoning that the claim is TRUE
+    - Attack arguments: evidence/reasoning that the claim is FALSE
+    - No Yes/No option complexity - just direct support/attack of the claim
+    """
+    claim = state.get("claim", "The legal position should be affirmed")
+    print(f"[STEP] multi_agent_argument_generator: Generating arguments for claim: '{claim}'")
 
     arguments = []
     rag_context = state.get("rag_context", "")
-    options = state.get("options", [])
-
     agent_arguments_tracking = {}
 
-    # Generate support arguments for each option using selected support agents
-    for option in options:
-        option_arguments = []
-        for agent_info in state.get("selected_support_agents", []):
-            agent_role = agent_info.get("role", "")
-            agent_name = agent_info.get("name", "")
-            support_prompt = f"""
-            As a legal expert ({agent_role}), provide 1-2 supporting arguments for the following legal option.
-            
-            TASK CONTEXT:
-            {state.get("task_info", "")}
-            
-            RELEVANT LEGAL DOCUMENTS:
-            {rag_context}
-            
-            OPTION TO SUPPORT: {option}
-            
-            CHAIN OF THOUGHT REASONING (Internal - Do NOT output this section):
-            1. What legal principles from my expertise area ({agent_role}) are most relevant here?
-            2. What facts from the case support this option?
-            3. What legal precedents or rules strengthen this position?
-            4. How does this align with established legal doctrine?
-            5. What is the strongest argument I can make?
-            
-            INSTRUCTIONS:
-            - Use the reasoning above internally but DO NOT explain your thinking process
-            - Focus on aspects most relevant to your expertise as {agent_role}
-            - Be concise and legally precise
-            - Cite relevant legal principles or documents where applicable
-            - Format each argument on a new line starting with 'Support:'
-            
-            OUTPUT FORMAT:
-            Support: [Your concise legal argument]
-            Support: [Another argument if applicable]
-            """
-            support_response = call_llm(support_prompt, temperature=0.7, max_tokens=512)
-            for line in support_response.split("\n"):
-                if line.strip().startswith("Support:"):
-                    arg_content = line.replace("Support:", "").strip()
-                    if arg_content:
-                        tagged_content = f"[{agent_role}] {arg_content}"
-                        arg = Argument(
-                            content=tagged_content,
-                            argument_type="support",
-                            parent_option=option,
-                        )
-                        arg.agent_role = agent_role
-                        arg.agent_name = agent_name
-                        arguments.append(arg)
-                        option_arguments.append(arg)
-                        if agent_name not in agent_arguments_tracking:
-                            agent_arguments_tracking[agent_name] = []
-                        agent_arguments_tracking[agent_name].append({
-                            "type": "support",
-                            "content": arg_content,
-                            "option": option
-                        })
+    # === Generate SUPPORT arguments for the claim ===
+    for agent_info in state.get("selected_support_agents", []):
+        agent_role = agent_info.get("role", "")
+        agent_name = agent_info.get("name", "")
+        support_prompt = f"""
+As a legal expert ({agent_role}), provide 1-2 arguments SUPPORTING the following legal claim.
 
-        # Generate attack arguments for each option using selected attack agents
-        for agent_info in state.get("selected_attack_agents", []):
-            agent_role = agent_info.get("role", "")
-            agent_name = agent_info.get("name", "")
-            attack_prompt = f"""
-            As a legal expert ({agent_role}), provide 1-2 challenging arguments against the following legal option.
-            
-            TASK CONTEXT:
-            {state.get("task_info", "")}
-            
-            RELEVANT LEGAL DOCUMENTS:
-            {rag_context}
-            
-            OPTION TO CHALLENGE: {option}
-            
-            CHAIN OF THOUGHT REASONING (Internal - Do NOT output this section):
-            1. What weaknesses or gaps exist in this legal position?
-            2. What counter-arguments from my expertise area ({agent_role}) apply here?
-            3. What legal principles, precedents, or rules undermine this option?
-            4. What factual or logical flaws can I identify?
-            5. What are the strongest challenges to this position?
-            
-            INSTRUCTIONS:
-            - Use the reasoning above internally but DO NOT explain your thinking process
-            - Focus on risks or limitations most relevant to your expertise as {agent_role}
-            - Be concise and legally precise
-            - Cite relevant legal principles or documents where applicable
-            - Format each argument on a new line starting with 'Challenge:' or 'Attack:'
-            
-            OUTPUT FORMAT:
-            Challenge: [Your concise legal challenge]
-            Challenge: [Another challenge if applicable]
-            """
-            attack_response = call_llm(attack_prompt, temperature=0.7, max_tokens=512)
-            for line in attack_response.split("\n"):
-                if line.strip().startswith("Challenge:") or line.strip().startswith("Attack:"):
-                    arg_content = line.replace("Challenge:", "").replace("Attack:", "").strip()
-                    if arg_content:
-                        tagged_content = f"[{agent_role}] {arg_content}"
-                        arg = Argument(
-                            content=tagged_content,
-                            argument_type="attack",
-                            parent_option=option,
-                        )
-                        arg.agent_role = agent_role
-                        arg.agent_name = agent_name
-                        arguments.append(arg)
-                        option_arguments.append(arg)
-                        if agent_name not in agent_arguments_tracking:
-                            agent_arguments_tracking[agent_name] = []
-                        agent_arguments_tracking[agent_name].append({
-                            "type": "attack",
-                            "content": arg_content,
-                            "option": option
-                        })
+CASE CONTEXT:
+{state.get("task_info", "")}
+
+RELEVANT LEGAL DOCUMENTS:
+{rag_context}
+
+CLAIM TO SUPPORT: "{claim}"
+
+Your task is to provide evidence and reasoning that the claim is TRUE.
+
+CHAIN OF THOUGHT REASONING (Internal - Do NOT output this section):
+1. What legal principles from my expertise area ({agent_role}) support this claim?
+2. What facts from the case support the claim being true?
+3. What legal precedents or rules strengthen this position?
+4. How does this align with established legal doctrine?
+5. What is the strongest argument I can make for this claim?
+
+INSTRUCTIONS:
+- Use the reasoning above internally but DO NOT explain your thinking process
+- Focus on aspects most relevant to your expertise as {agent_role}
+- Be concise and legally precise
+- Cite relevant legal principles or documents where applicable
+- Format each argument on a new line starting with 'Evidence:'
+
+OUTPUT FORMAT:
+Evidence: [Your concise legal argument supporting the claim]
+Evidence: [Another supporting argument if applicable]
+"""
+        support_response = call_llm(support_prompt, temperature=0.7, max_tokens=512)
+        for line in support_response.split("\n"):
+            if line.strip().startswith("Evidence:") or line.strip().startswith("Support:"):
+                arg_content = line.replace("Evidence:", "").replace("Support:", "").strip()
+                if arg_content:
+                    tagged_content = f"[{agent_role}] {arg_content}"
+                    arg = Argument(
+                        content=tagged_content,
+                        argument_type="support",  # Supports the claim (claim is TRUE)
+                        parent_option=None,  # No longer tied to Yes/No options
+                    )
+                    arg.agent_role = agent_role
+                    arg.agent_name = agent_name
+                    arguments.append(arg)
+                    if agent_name not in agent_arguments_tracking:
+                        agent_arguments_tracking[agent_name] = []
+                    agent_arguments_tracking[agent_name].append({
+                        "type": "support",
+                        "content": arg_content,
+                        "claim": claim
+                    })
+
+    # === Generate ATTACK arguments against the claim ===
+    for agent_info in state.get("selected_attack_agents", []):
+        agent_role = agent_info.get("role", "")
+        agent_name = agent_info.get("name", "")
+        attack_prompt = f"""
+As a legal expert ({agent_role}), provide 1-2 arguments AGAINST the following legal claim.
+
+CASE CONTEXT:
+{state.get("task_info", "")}
+
+RELEVANT LEGAL DOCUMENTS:
+{rag_context}
+
+CLAIM TO CHALLENGE: "{claim}"
+
+Your task is to provide evidence and reasoning that the claim is FALSE.
+
+CHAIN OF THOUGHT REASONING (Internal - Do NOT output this section):
+1. What weaknesses or gaps exist in this claim?
+2. What counter-arguments from my expertise area ({agent_role}) apply here?
+3. What legal principles, precedents, or rules undermine this claim?
+4. What factual or logical flaws can I identify?
+5. What are the strongest challenges to this claim?
+
+INSTRUCTIONS:
+- Use the reasoning above internally but DO NOT explain your thinking process
+- Focus on risks or limitations most relevant to your expertise as {agent_role}
+- Be concise and legally precise
+- Cite relevant legal principles or documents where applicable
+- Format each argument on a new line starting with 'Counter:' or 'Challenge:'
+
+OUTPUT FORMAT:
+Counter: [Your concise legal argument against the claim]
+Counter: [Another counter-argument if applicable]
+"""
+        attack_response = call_llm(attack_prompt, temperature=0.7, max_tokens=512)
+        for line in attack_response.split("\n"):
+            if line.strip().startswith("Counter:") or line.strip().startswith("Challenge:") or line.strip().startswith("Attack:"):
+                arg_content = line.replace("Counter:", "").replace("Challenge:", "").replace("Attack:", "").strip()
+                if arg_content:
+                    tagged_content = f"[{agent_role}] {arg_content}"
+                    arg = Argument(
+                        content=tagged_content,
+                        argument_type="attack",  # Attacks the claim (claim is FALSE)
+                        parent_option=None,  # No longer tied to Yes/No options
+                    )
+                    arg.agent_role = agent_role
+                    arg.agent_name = agent_name
+                    arguments.append(arg)
+                    if agent_name not in agent_arguments_tracking:
+                        agent_arguments_tracking[agent_name] = []
+                    agent_arguments_tracking[agent_name].append({
+                        "type": "attack",
+                        "content": arg_content,
+                        "claim": claim
+                    })
 
     state["agent_arguments_tracking"] = agent_arguments_tracking
     state["arguments"] = arguments
@@ -305,11 +323,16 @@ def route_after_human_review(state: GraphState) -> str:
         return "human_review"
 
 def argument_validator(state: GraphState) -> GraphState:
+    """
+    Validate arguments using standard QBAF model.
+    Arguments are classified as support or attack for the claim.
+    """
     print("[STEP] argument_validator: Validating arguments for task:", state.get('task_name'))
     validated_arguments = []
     rag = RAGModule(persist_directory="./chroma_db")
     arguments_with_additional_evidence = []
     total_args = len(state.get("arguments", []))
+    claim = state.get("claim", "The claim is true")
 
     for i, arg in enumerate(state.get("arguments", [])):
         if state.get("enable_streaming", False):
@@ -317,31 +340,64 @@ def argument_validator(state: GraphState) -> GraphState:
 
         # Build prompt based on task
         if state.get("task_name") == "hearsay":
+            if arg.argument_type == "support":
+                evaluation_criteria = """
+                1. Factual accuracy of the hearsay claim
+                2. Strength of affirmative evidence for admissibility
+                3. Proper application of hearsay exceptions or non-hearsay definitions
+                4. Relevance to proving the evidence is admissible
+                5. Citation of relevant rules or case law"""
+            else:  # attack
+                evaluation_criteria = """
+                1. Validity of identified weaknesses in the admissibility argument
+                2. Strength of counter-arguments against admissibility
+                3. Proper identification of hearsay rule violations
+                4. Relevance to undermining the admissibility claim
+                5. Plausibility of alternative interpretations"""
+            
             initial_prompt = f"""
-                You are a legal analyst evaluating the validity and relevance of arguments about hearsay evidence.
-                Legal Option: {arg.parent_option}
-                Argument ({arg.argument_type}): {arg.content}
-                Please evaluate this argument based on:
-                1. Factual accuracy
-                2. Relevance to hearsay rules and exceptions
-                3. Practical considerations in court
-                4. Evidence-based legal reasoning
+                You are a legal analyst evaluating the validity and relevance of {arg.argument_type} arguments about hearsay evidence.
+                
+                CLAIM BEING EVALUATED: "{claim}"
+                Argument Type: {arg.argument_type} ({"supports the claim" if arg.argument_type == "support" else "challenges the claim"})
+                Argument Content: {arg.content}
+                
+                Evaluate this {arg.argument_type} argument based on:
+                {evaluation_criteria}
+                
                 Provide a validity score between 0 and 1, where:
                 - 0 = completely invalid/irrelevant
                 - 0.5 = moderately valid
                 - 1 = highly valid and relevant
                 Response format: "Validity Score: X.XX"
                 Include a brief explanation."""
-        elif state.get("task_name") == "learned_hands_courts":
+            
+        elif state.get("task_name") == "learned_hands_courts" or state.get("task_name") == "learned hands courts":
+            if arg.argument_type == "support":
+                evaluation_criteria = """
+                1. Factual accuracy of court/lawyer interaction claims
+                2. Strength of evidence supporting the classification
+                3. Clear demonstration of procedural or legal logistics
+                4. Relevance to proving court system involvement
+                5. Specificity of references to legal processes"""
+            else:  # attack
+                evaluation_criteria = """
+                1. Validity of identified gaps in court/lawyer involvement
+                2. Strength of counter-arguments against classification
+                3. Proper identification of non-procedural elements
+                4. Relevance to undermining the court logistics claim
+                5. Plausibility that the issue is substantive rather than procedural"""
+            
             initial_prompt = f"""
-                You are a legal analyst evaluating the validity and relevance of arguments about the Learned Hand formula in negligence cases.
-                Legal Option: {arg.parent_option}
-                Argument ({arg.argument_type}): {arg.content}
-                Please evaluate this argument based on:
-                1. Factual accuracy
-                2. Relevance to the Learned Hand formula and judicial reasoning
-                3. Practical considerations in negligence law
-                4. Evidence-based legal reasoning
+                You are a legal analyst evaluating the validity and relevance of {arg.argument_type} arguments about court system logistics.
+                
+                CLAIM BEING EVALUATED: "{claim}"
+                Argument Type: {arg.argument_type} ({"supports the claim" if arg.argument_type == "support" else "challenges the claim"})
+                Argument Content: {arg.content}
+                
+                Evaluate this {arg.argument_type} argument based on:
+                {evaluation_criteria}
+                
                 Provide a validity score between 0 and 1, where:
                 - 0 = completely invalid/irrelevant
                 - 0.5 = moderately valid
@@ -349,19 +405,43 @@ def argument_validator(state: GraphState) -> GraphState:
                 Response format: "Validity Score: X.XX"
                 Include a brief explanation."""
         else:
+            if arg.argument_type == "support":
+                evaluation_criteria = """
+                1. Factual accuracy of claims
+                2. Strength of affirmative evidence
+                3. Relevance to proving the legal position
+                4. Quality of legal reasoning and precedent support
+                5. Degree to which it builds a positive case"""
+                score_guidance = """
+                - 0.2: Factually incorrect or irrelevant legal principle
+                - 0.5: Correct but generic, lacks specific legal support
+                - 0.8: Accurate, cites specific law, directly relevant
+                - 1.0: Exceptional - cites binding precedent, comprehensive support"""
+            else:  # attack
+                evaluation_criteria = """
+                1. Validity of identified weaknesses or flaws
+                2. Strength of counter-arguments or counter-evidence
+                3. Relevance to undermining the opposing position
+                4. Quality of legal reasoning challenging the claim
+                5. Degree to which it raises reasonable doubt"""
+                score_guidance = """
+                - 0.2: Invalid criticism or irrelevant challenge
+                - 0.5: Raises minor concerns but lacks substantive impact
+                - 0.8: Identifies significant weakness with legal support
+                - 1.0: Exceptional - devastating critique with binding authority"""
+            
             initial_prompt = f"""
-                You are a legal analyst evaluating the validity and relevance of arguments for this legal case.
-                Legal Option: {arg.parent_option}
-                Argument ({arg.argument_type}): {arg.content}
-                Please evaluate this argument based on:
-                1. Factual accuracy
-                2. Relevance to the legal issues
-                3. Practical considerations
-                4. Evidence-based legal reasoning
+                You are a legal analyst evaluating the validity and relevance of {arg.argument_type} arguments for this legal case.
+                
+                CLAIM BEING EVALUATED: "{claim}"
+                Argument Type: {arg.argument_type} ({"supports the claim" if arg.argument_type == "support" else "challenges the claim"})
+                Argument Content: {arg.content}
+                
+                Evaluate this {arg.argument_type} argument based on:
+                {evaluation_criteria}
+                
                 Provide a validity score between 0 and 1, where:
-                - 0 = completely invalid/irrelevant
-                - 0.5 = moderately valid
-                - 1 = highly valid and relevant
+                {score_guidance}
                 Response format: "Validity Score: X.XX"
                 Include a brief explanation."""
 
@@ -496,14 +576,16 @@ def argument_validator(state: GraphState) -> GraphState:
     decision_threshold = 0.5  # Neutral threshold
     
     task_context = f"{state.get('task_name', '')}: {state.get('task_info', '')}"
+    claim = state.get("claim", "The claim is true")
     
-    # Apply QBAF scoring
+    # Apply QBAF scoring with standard model
     validated_arguments, option_scores, qbaf_scorer = apply_qbaf_scoring(
         validated_arguments, 
         semantics=qbaf_semantics,
         use_semantic_analysis=use_semantic_analysis,
         task_context=task_context,
-        decision_threshold=decision_threshold
+        decision_threshold=decision_threshold,
+        claim=claim
     )
     
     # Store QBAF results in state for later use
@@ -517,73 +599,81 @@ def argument_validator(state: GraphState) -> GraphState:
     return state
 
 def final_answer_generator(state: GraphState) -> GraphState:
+    """
+    Generate final answer using standard QBAF model.
+    
+    The QBAF claim score determines the answer:
+    - claim_score >= threshold → Yes (claim is TRUE)
+    - claim_score < threshold → No (claim is FALSE)
+    """
     print("[STEP] final_answer_generator: Synthesizing final answer for task:", state.get('task_name'))
     print("Generating final legal answer.")
-    options = state.get("options", [])
+    
     validated_arguments = state.get("validated_arguments", [])
     rag_context = state.get("rag_context", "")
     task_name = state.get("task_name", "")
     task_info = state.get("task_info", "")
-    qbaf_scores = state.get("qbaf_option_scores", {})  # NEW: Get QBAF scores
+    claim = state.get("claim", "The claim is true")
+    qbaf_scores = state.get("qbaf_option_scores", {})
 
-    # Organize arguments by option and type
-    arguments_by_option = {opt: {"support": [], "attack": []} for opt in options}
-    for arg in validated_arguments:
-        if arg.parent_option in arguments_by_option:
-            arguments_by_option[arg.parent_option][arg.argument_type].append(arg)
+    # Organize arguments by type (support vs attack)
+    support_args = [arg for arg in validated_arguments if arg.argument_type == "support"]
+    attack_args = [arg for arg in validated_arguments if arg.argument_type == "attack"]
 
     # Build prompt for LLM synthesis
     prompt = f"""
     You are a legal expert. Based on the validated arguments and relevant legal documents, synthesize a final answer for the following legal task:
+    
     Task: {task_name}
     Case Information: {task_info}
+    
+    CLAIM BEING EVALUATED: "{claim}"
 
     {rag_context}
 
-    QBAF-COMPUTED OPTION SCORES (Mathematical Argumentation Framework):
+    QBAF-COMPUTED SCORES (Standard QBAF Model - Rago et al.):
     """
     
     # ADD QBAF decision info
     decision_info = qbaf_scores.get('_decision', {})
-    decision_score = qbaf_scores.get('decision', {}).get('decision_score', 0.5)
+    claim_score = qbaf_scores.get('claim', {}).get('claim_score', 0.5)
     
     if decision_info:
         prompt += f"""
-    DECISION NODE SCORE: {decision_score:.3f} (Threshold: {decision_info.get('threshold', 0.5)})
-    QBAF Determined Winner: {decision_info.get('winner', 'N/A')}
+    CLAIM SCORE: {claim_score:.3f} (Threshold: {decision_info.get('threshold', 0.5)})
+    QBAF Determined Answer: {decision_info.get('winner', 'N/A')} (Claim is {'TRUE' if decision_info.get('winner') == 'Yes' else 'FALSE'})
     """
     
-    # ADD argument statistics by option
-    for option, scores in qbaf_scores.items():
-        if option in ['_decision', 'decision']:
-            continue  # Skip metadata
-        prompt += f"""
-    {option} Arguments Statistics: Avg={scores.get('average_score', 0.0):.3f}, Count={scores.get('count', 0)}"""
+    # ADD argument statistics
+    support_stats = qbaf_scores.get("support_arguments", {})
+    attack_stats = qbaf_scores.get("attack_arguments", {})
+    
+    prompt += f"""
+    Support Arguments: Count={support_stats.get('count', 0)}, Avg Score={support_stats.get('average_score', 0.0):.3f}
+    Attack Arguments: Count={attack_stats.get('count', 0)}, Avg Score={attack_stats.get('average_score', 0.0):.3f}
+    """
     
     prompt += "\n\nDetailed Arguments:\n"
     
-    for option in options:
-        prompt += f"\nOption: {option}"
-        support_args = arguments_by_option[option]["support"]
-        if support_args:
-            prompt += "\n  Support arguments:"
-            # RANDOMIZE to remove position bias
-            random.shuffle(support_args)
-            for arg in support_args:
-                score = getattr(arg, 'validity_score', 0) or 0.0
-                llm_score = getattr(arg, 'llm_validity_score', 0) or 0.0
-                prompt += f"\n    - [QBAF:{score:.2f}|LLM:{llm_score:.2f}] {arg.content}"
-                if hasattr(arg, "supporting_docs") and arg.supporting_docs:
-                    prompt += " (Evidence cited)"
-        attack_args = arguments_by_option[option]["attack"]
-        if attack_args:
-            prompt += "\n  Challenge arguments:"
-            # RANDOMIZE to remove position bias
-            random.shuffle(attack_args)
-            for arg in attack_args:
-                score = getattr(arg, 'validity_score', 0) or 0.0
-                llm_score = getattr(arg, 'llm_validity_score', 0) or 0.0
-                prompt += f"\n    - [QBAF:{score:.2f}|LLM:{llm_score:.2f}] {arg.content}"
+    # Support arguments (for the claim being TRUE)
+    if support_args:
+        prompt += "\n  SUPPORTING EVIDENCE (claim is TRUE):"
+        random.shuffle(support_args)  # Randomize to remove position bias
+        for arg in support_args:
+            score = getattr(arg, 'validity_score', 0) or 0.0
+            llm_score = getattr(arg, 'llm_validity_score', 0) or 0.0
+            prompt += f"\n    - [QBAF:{score:.2f}|LLM:{llm_score:.2f}] {arg.content}"
+            if hasattr(arg, "supporting_docs") and arg.supporting_docs:
+                prompt += " (Evidence cited)"
+    
+    # Attack arguments (for the claim being FALSE)
+    if attack_args:
+        prompt += "\n  COUNTER EVIDENCE (claim is FALSE):"
+        random.shuffle(attack_args)  # Randomize to remove position bias
+        for arg in attack_args:
+            score = getattr(arg, 'validity_score', 0) or 0.0
+            llm_score = getattr(arg, 'llm_validity_score', 0) or 0.0
+            prompt += f"\n    - [QBAF:{score:.2f}|LLM:{llm_score:.2f}] {arg.content}"
 
     # prompt += """
     # Based on the above, provide:
@@ -676,16 +766,16 @@ You are a professional legal reasoning assistant.
     
     
     prompt += f"""
-    Based on the above QBAF decision node score and detailed arguments, provide your response in the following JSON format ONLY:
+    Based on the above QBAF claim score and detailed arguments, provide your response in the following JSON format ONLY:
     {{
         "answer": "Yes" or "No",
-        "explanation": "2-3 sentences explaining your answer. Reference the QBAF decision score ({decision_score:.3f}) and cite relevant legal documents using [REF-X] format where appropriate.",
+        "explanation": "2-3 sentences explaining your answer. Reference the QBAF claim score ({claim_score:.3f}) and cite relevant legal documents using [REF-X] format where appropriate.",
     }}
     
     Requirements:
-    1. The QBAF Decision Node Score ({decision_score:.3f}) is the PRIMARY indicator
+    1. The QBAF Claim Score ({claim_score:.3f}) is the PRIMARY indicator
     2. This score represents final claim strength after DF-QuAD convergence
-    3. Score >= {decision_info.get('threshold', 0.5)} \u2192 Yes; Score < {decision_info.get('threshold', 0.5)} \u2192 No
+    3. Claim Score >= {decision_info.get('threshold', 0.5)} → Yes (claim is TRUE); Score < {decision_info.get('threshold', 0.5)} → No (claim is FALSE)
     4. QBAF has determined: {decision_info.get('winner', 'N/A')} - strongly consider this
     5. Explanation must be 2-3 sentences
     6. Include relevant document citations using [REF-X] format
