@@ -15,6 +15,7 @@ class QBAFArgument:
     argument_type: str  # "support" or "attack"
     agent_role: Optional[str] = None
     agent_name: Optional[str] = None
+    is_decision_node: bool = False  # True for Yes/No decision nodes
     
     # QBAF computed scores
     final_score: float = 0.0
@@ -95,7 +96,20 @@ class QBAFScorer:
         # Clear existing
         self.arguments = {}
         
-        # Step 1: Create QBAF arguments
+        # Step 1: Create single decision node (the claim/question to be decided)
+        # Arguments will support or attack this decision node
+        # Final score >= threshold → Yes; Final score < threshold → No
+        decision_node = QBAFArgument(
+            id="decision_root",
+            content="Final Decision Node",
+            base_score=0.5,  # Neutral starting point
+            parent_option="decision",
+            argument_type="decision",
+            is_decision_node=True
+        )
+        self.add_argument(decision_node)
+        
+        # Step 2: Create QBAF arguments from regular arguments
         for i, arg in enumerate(arguments):
             qbaf_arg = QBAFArgument(
                 id=f"arg_{i}",
@@ -104,11 +118,28 @@ class QBAFScorer:
                 parent_option=arg.parent_option,
                 argument_type=arg.argument_type,
                 agent_role=arg.agent_role,
-                agent_name=arg.agent_name
+                agent_name=arg.agent_name,
+                is_decision_node=False
             )
             self.add_argument(qbaf_arg)
         
-        # Step 2: Infer attack/support relations
+        # Step 3: Connect arguments to the decision node
+        # Logic:
+        #   - Arguments with parent_option="Yes" support the decision (claim is true)
+        #   - Arguments with parent_option="No" attack the decision (claim is false)
+        #   - argument_type (support/attack) is for inter-argument relations, not decision relations
+        for i, arg in enumerate(arguments):
+            arg_id = f"arg_{i}"
+            decision_id = "decision_root"
+            
+            if arg.parent_option.lower() == "yes":
+                # Yes arguments support the decision claim
+                self.add_support(arg_id, decision_id)
+            elif arg.parent_option.lower() == "no":
+                # No arguments attack the decision claim
+                self.add_attack(arg_id, decision_id)
+        
+        # Step 4: Infer attack/support relations between arguments
         if use_semantic_analysis:
             print(f"[QBAF] Using SEMANTIC ANALYSIS for relation identification...")
             self._build_relations_semantic(arguments, task_context)
@@ -116,7 +147,7 @@ class QBAFScorer:
             print(f"[QBAF] Using HEURISTIC RULES for relation identification...")
             self._build_relations_heuristic()
         
-        print(f"[QBAF] Built graph with {len(self.arguments)} arguments")
+        print(f"[QBAF] Built graph with {len(self.arguments)} nodes (1 decision node + {len(arguments)} arguments)")
         self._print_graph_statistics()
     
     def _build_relations_heuristic(self) -> None:
@@ -382,49 +413,100 @@ class QBAFScorer:
     
     def get_option_scores(self) -> Dict[str, float]:
         """
-        Compute aggregate scores for each option based on argument scores.
+        Get the decision node score and compute argument statistics.
         
-        IMPORTANT: All arguments are in the same QBAF graph. The DF-QuAD convergence
-        already factors in attack/support relations through the graph structure.
-        We just SUM all final_scores - no need to differentiate by argument_type.
+        The single decision node's final_score represents the claim strength.
+        Score >= threshold → Yes; Score < threshold → No
         
         Returns:
-            Dictionary mapping option names to aggregate scores
+            Dictionary with decision score and argument statistics
         """
         option_scores = {}
         
+        # Get decision node score
+        decision_node = None
         for arg in self.arguments.values():
-            if arg.parent_option not in option_scores:
-                option_scores[arg.parent_option] = {
-                    "total_score": 0.0,  # Sum of all final_scores (QBAF already handled relations)
-                    "support_score": 0.0,  # For analysis only
-                    "attack_score": 0.0,   # For analysis only
-                    "count": 0
-                }
-            
-            # Add to total score (this is what matters for decision)
-            option_scores[arg.parent_option]["total_score"] += arg.final_score
-            
-            # Track by type for analysis/debugging purposes only
-            if arg.argument_type == "support":
-                option_scores[arg.parent_option]["support_score"] += arg.final_score
-            elif arg.argument_type == "attack":
-                option_scores[arg.parent_option]["attack_score"] += arg.final_score
-            
-            option_scores[arg.parent_option]["count"] += 1
+            if arg.is_decision_node:
+                decision_node = arg
+                break
         
-        # Compute average score per argument (for fair comparison across options)
+        if decision_node:
+            option_scores["decision"] = {
+                "decision_score": decision_node.final_score,
+                "base_score": decision_node.base_score,
+                "support_impact": decision_node.support_impact,
+                "attack_impact": decision_node.attack_impact
+            }
+        
+        # Compute argument statistics by parent_option (for analysis)
+        for arg in self.arguments.values():
+            if not arg.is_decision_node:
+                if arg.parent_option not in option_scores:
+                    option_scores[arg.parent_option] = {
+                        "support_score": 0.0,
+                        "attack_score": 0.0,
+                        "total_score": 0.0,
+                        "count": 0
+                    }
+                
+                option_scores[arg.parent_option]["total_score"] += arg.final_score
+                
+                if arg.argument_type == "support":
+                    option_scores[arg.parent_option]["support_score"] += arg.final_score
+                elif arg.argument_type == "attack":
+                    option_scores[arg.parent_option]["attack_score"] += arg.final_score
+                
+                option_scores[arg.parent_option]["count"] += 1
+        
+        # Compute averages
         for option, data in option_scores.items():
-            data["average_score"] = data["total_score"] / max(data["count"], 1)
+            if option != "decision" and "count" in data and data["count"] > 0:
+                data["average_score"] = data["total_score"] / data["count"]
         
         return option_scores
     
     def get_top_arguments(self, option: str = None, top_k: int = 5) -> List[QBAFArgument]:
         """Get top-k arguments by final score, optionally filtered by option"""
         filtered = [arg for arg in self.arguments.values() 
-                   if option is None or arg.parent_option == option]
+                   if (option is None or arg.parent_option == option) and not arg.is_decision_node]
         sorted_args = sorted(filtered, key=lambda x: x.final_score, reverse=True)
         return sorted_args[:top_k]
+    
+    def get_decision_nodes(self) -> List[QBAFArgument]:
+        """Get all decision nodes"""
+        return [arg for arg in self.arguments.values() if arg.is_decision_node]
+    
+    def determine_winner(self, threshold: float = 0.5, yes_option: str = "Yes", no_option: str = "No") -> Tuple[str, float, Dict]:
+        """
+        Determine the winning option based on single decision node score vs threshold.
+        
+        Args:
+            threshold: Score threshold for accepting Yes (default 0.5)
+            yes_option: Name of the positive option (default "Yes")
+            no_option: Name of the negative option (default "No")
+        
+        Returns:
+            Tuple of (winning_option, decision_score, decision_info)
+        """
+        option_scores = self.get_option_scores()
+        
+        # Get the single decision node score
+        decision_score = option_scores.get("decision", {}).get("decision_score", 0.5)
+        
+        # Decision logic: If score >= threshold → Yes, otherwise → No
+        if decision_score >= threshold:
+            winner = yes_option
+        else:
+            winner = no_option
+        
+        decision_info = {
+            "winner": winner,
+            "decision_score": decision_score,
+            "threshold": threshold,
+            "margin": abs(decision_score - threshold)  # Distance from threshold
+        }
+        
+        return winner, decision_score, decision_info
     
     def _print_graph_statistics(self) -> None:
         """Print statistics about the QBAF graph"""
@@ -475,7 +557,8 @@ def apply_qbaf_scoring(
     arguments: List, 
     semantics: str = "df_quad",
     use_semantic_analysis: bool = False,
-    task_context: str = ""
+    task_context: str = "",
+    decision_threshold: float = 0.5
 ) -> Tuple[List, Dict, 'QBAFScorer']:
     """
     Convenience function to apply QBAF scoring to a list of arguments.
@@ -485,6 +568,7 @@ def apply_qbaf_scoring(
         semantics: Type of gradual semantics ("weighted_sum", "weighted_product", "euler_based", "df_quad")
         use_semantic_analysis: Use LLM-based semantic analysis for relations (slower but more accurate)
         task_context: Description of legal task for semantic analysis context
+        decision_threshold: Threshold for Yes decision (default 0.5)
     
     Returns:
         Tuple of (updated_arguments, option_scores, scorer)
@@ -521,17 +605,32 @@ def apply_qbaf_scoring(
     # Get option-level scores
     option_scores = scorer.get_option_scores()
     
+    # Determine winner
+    winner, decision_score, decision_info = scorer.determine_winner(threshold=decision_threshold)
+    
     # Print summary
     print("\n=== QBAF Scoring Summary ===")
+    print(f"\nDecision Node Score: {decision_score:.3f} ⭐")
+    print(f"Decision Threshold: {decision_threshold}")
+    print(f"Winner: {winner}")
+    print(f"Margin from threshold: {decision_info['margin']:.3f}")
+    
+    # Print argument statistics by option
     for option, scores in option_scores.items():
-        print(f"\nOption: {option}")
-        print(f"  Total QBAF Score: {scores['total_score']:.3f}")
-        print(f"  Average per arg:  {scores['average_score']:.3f}")
-        print(f"  Breakdown - Support args: {scores['support_score']:.3f}, Attack args: {scores['attack_score']:.3f}")
-        print(f"  Argument count: {scores['count']}")
+        if option == "decision":
+            continue  # Already printed above
+        print(f"\n{option} Arguments:")
+        if 'total_score' in scores:
+            print(f"  Total Score: {scores['total_score']:.3f}")
+            print(f"  Average per arg: {scores.get('average_score', 0.0):.3f}")
+            print(f"  Breakdown - Support: {scores.get('support_score', 0.0):.3f}, Attack: {scores.get('attack_score', 0.0):.3f}")
+            print(f"  Count: {scores.get('count', 0)}")
     
     print(f"\nTop 3 arguments overall:")
     for i, arg in enumerate(scorer.get_top_arguments(top_k=3), 1):
         print(f"  {i}. [{arg.parent_option}] Score: {arg.final_score:.3f} - {arg.content[:80]}...")
+    
+    # Add decision info to option_scores
+    option_scores['_decision'] = decision_info
     
     return arguments, option_scores, scorer

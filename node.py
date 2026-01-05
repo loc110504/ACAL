@@ -490,6 +490,11 @@ def argument_validator(state: GraphState) -> GraphState:
     # Option 2: Semantic analysis (use_semantic_analysis=True) - LLM-based NLI, slower but more accurate
     use_semantic_analysis = False  # Set to True to enable semantic analysis
     
+    # Decision threshold for Yes/No classification
+    # Values > 0.5 make it harder to accept Yes (more conservative)
+    # Values < 0.5 make it easier to accept Yes (more liberal)
+    decision_threshold = 0.5  # Neutral threshold
+    
     task_context = f"{state.get('task_name', '')}: {state.get('task_info', '')}"
     
     # Apply QBAF scoring
@@ -497,7 +502,8 @@ def argument_validator(state: GraphState) -> GraphState:
         validated_arguments, 
         semantics=qbaf_semantics,
         use_semantic_analysis=use_semantic_analysis,
-        task_context=task_context
+        task_context=task_context,
+        decision_threshold=decision_threshold
     )
     
     # Store QBAF results in state for later use
@@ -537,10 +543,22 @@ def final_answer_generator(state: GraphState) -> GraphState:
     QBAF-COMPUTED OPTION SCORES (Mathematical Argumentation Framework):
     """
     
-    # ADD QBAF scores to prompt
-    for option, scores in qbaf_scores.items():
+    # ADD QBAF decision info
+    decision_info = qbaf_scores.get('_decision', {})
+    decision_score = qbaf_scores.get('decision', {}).get('decision_score', 0.5)
+    
+    if decision_info:
         prompt += f"""
-    {option}: QBAF Score = {scores['average_score']:.3f} (Total: {scores['total_score']:.3f} from {scores['count']} arguments)"""
+    DECISION NODE SCORE: {decision_score:.3f} (Threshold: {decision_info.get('threshold', 0.5)})
+    QBAF Determined Winner: {decision_info.get('winner', 'N/A')}
+    """
+    
+    # ADD argument statistics by option
+    for option, scores in qbaf_scores.items():
+        if option in ['_decision', 'decision']:
+            continue  # Skip metadata
+        prompt += f"""
+    {option} Arguments Statistics: Avg={scores.get('average_score', 0.0):.3f}, Count={scores.get('count', 0)}"""
     
     prompt += "\n\nDetailed Arguments:\n"
     
@@ -658,19 +676,20 @@ You are a professional legal reasoning assistant.
     
     
     prompt += f"""
-    Based on the above QBAF scores and detailed arguments, provide your response in the following JSON format ONLY:
+    Based on the above QBAF decision node score and detailed arguments, provide your response in the following JSON format ONLY:
     {{
         "answer": "Yes" or "No",
-        "explanation": "2-3 sentences explaining your answer. Reference the QBAF scores and cite relevant legal documents using [REF-X] format where appropriate.",
+        "explanation": "2-3 sentences explaining your answer. Reference the QBAF decision score ({decision_score:.3f}) and cite relevant legal documents using [REF-X] format where appropriate.",
     }}
     
     Requirements:
-    1. Consider the QBAF average scores as primary indicators - higher score = stronger option
-    2. QBAF scores already factor in all attack/support relations through graph convergence
-    3. LLM scores show initial assessment; QBAF scores show final strength after argumentative interactions
-    4. Explanation must be 2-3 sentences
-    5. Include relevant document citations using [REF-X] format
-    6. Return ONLY valid JSON, no additional text
+    1. The QBAF Decision Node Score ({decision_score:.3f}) is the PRIMARY indicator
+    2. This score represents final claim strength after DF-QuAD convergence
+    3. Score >= {decision_info.get('threshold', 0.5)} \u2192 Yes; Score < {decision_info.get('threshold', 0.5)} \u2192 No
+    4. QBAF has determined: {decision_info.get('winner', 'N/A')} - strongly consider this
+    5. Explanation must be 2-3 sentences
+    6. Include relevant document citations using [REF-X] format
+    7. Return ONLY valid JSON, no additional text
     """
 
     if state.get("enable_streaming", False):
