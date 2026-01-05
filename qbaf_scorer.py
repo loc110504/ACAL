@@ -291,17 +291,54 @@ class QBAFScorer:
         
         return scores
     
+    @staticmethod
+    def _dfquad_F(values: List[float]) -> float:
+        """
+        DF-QuAD aggregation F
+          if n=0 -> 0
+          else   -> 1 - Π_i (1 - v_i)
+        """
+        if not values:
+            return 0.0
+        prod = 1.0
+        for v in values:
+            v = max(0.0, min(1.0, float(v)))
+            prod *= (1.0 - v)
+        return 1.0 - prod
+    
+    @staticmethod
+    def _dfquad_C(v0: float, va: float, vs: float, tol: float = 1e-12) -> float:
+        """
+        DF-QuAD combination C
+          if va == vs: C = v0
+          elif va > vs: C = v0 - (v0 * |vs - va|)
+          else:         C = v0 + ((1 - v0) * |vs - va|)
+        """
+        v0 = max(0.0, min(1.0, float(v0)))
+        va = max(0.0, min(1.0, float(va)))
+        vs = max(0.0, min(1.0, float(vs)))
+
+        diff = abs(vs - va)
+        if abs(va - vs) <= tol:
+            out = v0
+        elif va > vs:
+            out = v0 - (v0 * diff)
+        else:
+            out = v0 + ((1.0 - v0) * diff)
+
+        return max(0.0, min(1.0, out))
+    
     def _compute_df_quad(self) -> Dict[str, float]:
         """
         DF-QuAD (Discontinuity-Free Quantitative Argumentation Debate) semantics.
-        Most sophisticated - handles complex attack/support patterns smoothly.
+        Proper implementation based on Rago et al. "Discontinuity-Free Decision Support 
+        with Quantitative Argumentation Debates" (KR 2016)
         
-        Based on: Rago et al. "Discontinuity-Free Decision Support with Quantitative Argumentation Debates" (KR 2016)
+        σ(α) = C(v0, F(attackers), F(supporters))
+        where:
+          F(v1..vn) = 0 if n=0 else 1 - Π_i (1 - vi)
+          C is piecewise combination function
         """
-        # Parameters
-        alpha = 0.4  # Support weight
-        beta = 0.4   # Attack weight
-        
         scores = {arg_id: arg.base_score for arg_id, arg in self.arguments.items()}
         
         iteration = 0
@@ -310,24 +347,18 @@ class QBAFScorer:
             max_change = 0
             
             for arg_id, arg in self.arguments.items():
-                # Aggregate support
-                if arg.supported_by:
-                    support_agg = sum(scores[sup_id] for sup_id in arg.supported_by) / len(arg.supported_by)
-                else:
-                    support_agg = 0
+                v0 = float(arg.base_score)
                 
-                # Aggregate attack
-                if arg.attacked_by:
-                    attack_agg = sum(scores[att_id] for att_id in arg.attacked_by) / len(arg.attacked_by)
-                else:
-                    attack_agg = 0
+                # Get attacker and supporter strength values
+                att_vals = [scores[att_id] for att_id in arg.attacked_by]
+                sup_vals = [scores[sup_id] for sup_id in arg.supported_by]
                 
-                # DF-QuAD formula: combines base score with support/attack via smooth function
-                support_contribution = alpha * support_agg * (1 - arg.base_score)
-                attack_reduction = beta * attack_agg * arg.base_score
+                # Apply DF-QuAD aggregation F
+                va = self._dfquad_F(att_vals)
+                vs = self._dfquad_F(sup_vals)
                 
-                new_score = arg.base_score + support_contribution - attack_reduction
-                new_score = max(0, min(1, new_score))
+                # Apply DF-QuAD combination C
+                new_score = self._dfquad_C(v0, va, vs)
                 
                 new_scores[arg_id] = new_score
                 max_change = max(max_change, abs(new_score - scores[arg_id]))
