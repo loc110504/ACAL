@@ -100,9 +100,9 @@ def overall_options(state: GraphState) -> GraphState:
     task_name = state.get('task_name', '').lower()
     
     if task_name == 'hearsay':
-        state["claim"] = "The statement in question constitutes hearsay"
+        state["claim"] = "Hearsay is an out-of-court statement introduced to prove the truth of the matter asserted. Is there hearsay in this case?"
     elif task_name == 'learned hands courts' or task_name == 'learned_hands_courts':
-        state["claim"] = "This legal question relates to logistics about courts, lawyers, and the legal process itself"
+        state["claim"] = "Does the post discuss the logistics of how a person can interact with a lawyer or the court system. It applies to situations about procedure, rules, how to file lawsuits, how to hire lawyers, how to represent oneself, and other practical matters about dealing with these systems?"
     else:
         state["claim"] = "The legal position should be affirmed"
     
@@ -190,7 +190,7 @@ def multi_agent_argument_generator(state: GraphState) -> GraphState:
     rag_context = state.get("rag_context", "")
     agent_arguments_tracking = {}
 
-    # === Generate SUPPORT arguments for the claim ===
+    # SUPPORT arguments
     for agent_info in state.get("selected_support_agents", []):
         agent_role = agent_info.get("role", "")
         agent_name = agent_info.get("name", "")
@@ -247,12 +247,12 @@ Evidence: [Another supporting argument if applicable]
                         "claim": claim
                     })
 
-    # === Generate ATTACK arguments against the claim ===
+    # ATTACK arguments
     for agent_info in state.get("selected_attack_agents", []):
         agent_role = agent_info.get("role", "")
         agent_name = agent_info.get("name", "")
         attack_prompt = f"""
-As a legal expert ({agent_role}), provide 1-2 arguments AGAINST the following legal claim.
+As a legal expert ({agent_role}), provide 3-5 arguments AGAINST the following legal claim.
 
 CASE CONTEXT:
 {state.get("task_info", "")}
@@ -326,6 +326,9 @@ def argument_validator(state: GraphState) -> GraphState:
     """
     Validate arguments using standard QBAF model.
     Arguments are classified as support or attack for the claim.
+    
+    IMPORTANT: Use strict scoring to ensure differentiation between strong and weak arguments.
+    This prevents score saturation in QBAF calculations.
     """
     print("[STEP] argument_validator: Validating arguments for task:", state.get('task_name'))
     validated_arguments = []
@@ -333,6 +336,7 @@ def argument_validator(state: GraphState) -> GraphState:
     arguments_with_additional_evidence = []
     total_args = len(state.get("arguments", []))
     claim = state.get("claim", "The claim is true")
+    task_info = state.get("task_info", "")
 
     for i, arg in enumerate(state.get("arguments", [])):
         if state.get("enable_streaming", False):
@@ -341,109 +345,184 @@ def argument_validator(state: GraphState) -> GraphState:
         # Build prompt based on task
         if state.get("task_name") == "hearsay":
             if arg.argument_type == "support":
-                evaluation_criteria = """
-                1. Factual accuracy of the hearsay claim
-                2. Strength of affirmative evidence for admissibility
-                3. Proper application of hearsay exceptions or non-hearsay definitions
-                4. Relevance to proving the evidence is admissible
-                5. Citation of relevant rules or case law"""
+                initial_prompt = f"""You are a strict legal evidence expert evaluating whether this argument correctly supports that the evidence IS hearsay.
+
+CASE CONTEXT:
+{task_info}
+
+CLAIM: "{claim}"
+
+ARGUMENT TO EVALUATE (supports the claim):
+{arg.content}
+
+HEARSAY DEFINITION (FRE 801):
+Hearsay is: (1) an out-of-court statement, (2) offered to prove the truth of the matter asserted.
+
+STRICT EVALUATION CRITERIA:
+1. Does the argument correctly identify an OUT-OF-COURT STATEMENT? (Not in-court testimony)
+2. Does the argument correctly show the statement is offered for its TRUTH? (Not for other purposes like notice, effect on listener, verbal act)
+3. Does the argument correctly apply hearsay rules/exceptions from FRE 801-807?
+4. Is the argument SPECIFIC to this case's facts? (Not generic legal principles)
+5. Does the argument avoid logical errors?
+
+SCORING RUBRIC:
+- 0.1-0.2: Incorrect legal analysis OR misidentifies the statement/purpose
+- 0.3-0.4: Partially correct but misses key elements OR too generic
+- 0.5-0.6: Correct analysis but lacks specific case application OR minor gaps
+- 0.7-0.8: Strong analysis with specific facts AND correct legal reasoning
+- 0.9-1.0: EXCEPTIONAL - precise legal citation, flawless logic, case-specific (RARE)
+
+WARNING: Generic statements like "this is hearsay because it's an out-of-court statement" without analyzing the TRUTH purpose should score ≤0.4
+
+Response format: "Validity Score: X.XX"
+Brief explanation (1-2 sentences)."""
+
             else:  # attack
-                evaluation_criteria = """
-                1. Validity of identified weaknesses in the admissibility argument
-                2. Strength of counter-arguments against admissibility
-                3. Proper identification of hearsay rule violations
-                4. Relevance to undermining the admissibility claim
-                5. Plausibility of alternative interpretations"""
-            
-            initial_prompt = f"""
-                You are a legal analyst evaluating the validity and relevance of {arg.argument_type} arguments about hearsay evidence.
-                
-                CLAIM BEING EVALUATED: "{claim}"
-                Argument Type: {arg.argument_type} ({"supports the claim" if arg.argument_type == "support" else "challenges the claim"})
-                Argument Content: {arg.content}
-                
-                Evaluate this {arg.argument_type} argument based on:
-                {evaluation_criteria}
-                
-                Provide a validity score between 0 and 1, where:
-                - 0 = completely invalid/irrelevant
-                - 0.5 = moderately valid
-                - 1 = highly valid and relevant
-                Response format: "Validity Score: X.XX"
-                Include a brief explanation."""
+                initial_prompt = f"""You are a strict legal evidence expert evaluating whether this argument correctly challenges the hearsay classification.
+
+CASE CONTEXT:
+{task_info}
+
+CLAIM: "{claim}"
+
+ARGUMENT TO EVALUATE (attacks the claim - argues it is NOT hearsay):
+{arg.content}
+
+NON-HEARSAY CATEGORIES:
+- Not offered for truth (effect on listener, notice, verbal acts, state of mind)
+- Not a "statement" (non-assertive conduct)
+- Hearsay exceptions (FRE 803, 804, 807)
+- Non-hearsay by definition (FRE 801(d) - prior statements, opposing party statements)
+
+STRICT EVALUATION CRITERIA:
+1. Does the argument correctly identify WHY this is NOT hearsay?
+2. Does it cite a specific exception or non-hearsay category?
+3. Is the reasoning SPECIFIC to this case's facts?
+4. Does the argument avoid logical errors or misapplications?
+5. Would this argument succeed in court?
+
+SCORING RUBRIC (BE STRICT - most arguments should score 0.3-0.6):
+- 0.1-0.2: Incorrect legal category OR misunderstands the exception
+- 0.3-0.4: Identifies a category but wrong application OR too generic
+- 0.5-0.6: Correct category but weak case-specific reasoning
+- 0.7-0.8: Strong analysis with correct exception AND specific facts
+- 0.9-1.0: EXCEPTIONAL - precise citation, flawless application (RARE)
+
+WARNING: Vague claims like "it's not for the truth" without explaining the actual purpose should score ≤0.4
+
+Response format: "Validity Score: X.XX"
+Brief explanation (1-2 sentences)."""
             
         elif state.get("task_name") == "learned_hands_courts" or state.get("task_name") == "learned hands courts":
             if arg.argument_type == "support":
-                evaluation_criteria = """
-                1. Factual accuracy of court/lawyer interaction claims
-                2. Strength of evidence supporting the classification
-                3. Clear demonstration of procedural or legal logistics
-                4. Relevance to proving court system involvement
-                5. Specificity of references to legal processes"""
+                initial_prompt = f"""You are a strict legal classifier evaluating whether this argument correctly supports that the question is about COURT/LAWYER LOGISTICS.
+
+CASE CONTEXT:
+{task_info}
+
+CLAIM: "{claim}"
+
+ARGUMENT TO EVALUATE (supports the claim):
+{arg.content}
+
+COURTS CATEGORY DEFINITION:
+Questions about logistics of interacting with courts or lawyers:
+- Court procedures, filings, deadlines, hearings, appeals, records
+- Hiring, managing, or communicating with a lawyer
+- Procedural aspects of legal process
+
+NOT COURTS (substantive legal issues):
+- Whether someone has a legal right/claim
+- Interpretation of laws or contracts
+- Liability, damages, or legal outcomes
+
+STRICT EVALUATION CRITERIA:
+1. Does the argument identify SPECIFIC procedural/logistical elements?
+2. Does it correctly distinguish procedure from substance?
+3. Is it based on actual text from the case, not assumptions?
+4. Does it avoid conflating "mentions lawyer" with "about lawyer logistics"?
+
+SCORING RUBRIC (BE STRICT - most arguments should score 0.3-0.6):
+- 0.1-0.2: Confuses substance with procedure OR misreads the case
+- 0.3-0.4: Identifies some procedural element but weak connection OR generic
+- 0.5-0.6: Correct identification but doesn't clearly distinguish from substance
+- 0.7-0.8: Strong procedural focus with specific textual evidence
+- 0.9-1.0: EXCEPTIONAL - clear procedural issue, specific quotes (RARE)
+
+WARNING: "The post mentions a lawyer" alone should score ≤0.3 (mentioning ≠ logistics about)
+
+Response format: "Validity Score: X.XX"
+Brief explanation (1-2 sentences)."""
+
             else:  # attack
-                evaluation_criteria = """
-                1. Validity of identified gaps in court/lawyer involvement
-                2. Strength of counter-arguments against classification
-                3. Proper identification of non-procedural elements
-                4. Relevance to undermining the court logistics claim
-                5. Plausibility that the issue is substantive rather than procedural"""
-            
-            initial_prompt = f"""
-                You are a legal analyst evaluating the validity and relevance of {arg.argument_type} arguments about court system logistics.
-                
-                CLAIM BEING EVALUATED: "{claim}"
-                Argument Type: {arg.argument_type} ({"supports the claim" if arg.argument_type == "support" else "challenges the claim"})
-                Argument Content: {arg.content}
-                
-                Evaluate this {arg.argument_type} argument based on:
-                {evaluation_criteria}
-                
-                Provide a validity score between 0 and 1, where:
-                - 0 = completely invalid/irrelevant
-                - 0.5 = moderately valid
-                - 1 = highly valid and relevant
-                Response format: "Validity Score: X.XX"
-                Include a brief explanation."""
+                initial_prompt = f"""You are a strict legal classifier evaluating whether this argument correctly challenges the COURTS classification.
+
+CASE CONTEXT:
+{task_info}
+
+CLAIM: "{claim}"
+
+ARGUMENT TO EVALUATE (attacks the claim - argues NOT about court logistics):
+{arg.content}
+
+SUBSTANTIVE (NOT COURTS) INDICATORS:
+- Asking about legal rights, not how to file
+- Seeking interpretation of law, not procedure
+- Questions about liability, damages, outcomes
+- General legal advice, not process questions
+
+STRICT EVALUATION CRITERIA:
+1. Does the argument identify SPECIFIC substantive (non-procedural) elements?
+2. Does it correctly show the core question is about law, not process?
+3. Is it based on actual text from the case?
+4. Does it explain why procedural mentions are incidental?
+
+SCORING RUBRIC (BE STRICT - most arguments should score 0.3-0.6):
+- 0.1-0.2: Fails to identify substantive issue OR misreads the case
+- 0.3-0.4: Partial identification but doesn't explain why NOT procedural
+- 0.5-0.6: Identifies substance but doesn't address procedural elements
+- 0.7-0.8: Strong substantive focus explaining why procedure is incidental
+- 0.9-1.0: EXCEPTIONAL - clear substantive core, addresses all elements (RARE)
+
+WARNING: "This is about legal rights" without specific analysis should score ≤0.4
+
+Response format: "Validity Score: X.XX"
+Brief explanation (1-2 sentences)."""
+
         else:
             if arg.argument_type == "support":
-                evaluation_criteria = """
-                1. Factual accuracy of claims
-                2. Strength of affirmative evidence
-                3. Relevance to proving the legal position
-                4. Quality of legal reasoning and precedent support
-                5. Degree to which it builds a positive case"""
-                score_guidance = """
-                - 0.2: Factually incorrect or irrelevant legal principle
-                - 0.5: Correct but generic, lacks specific legal support
-                - 0.8: Accurate, cites specific law, directly relevant
-                - 1.0: Exceptional - cites binding precedent, comprehensive support"""
+                initial_prompt = f"""You are a strict legal analyst evaluating this supporting argument.
+
+CASE: {task_info}
+CLAIM: "{claim}"
+ARGUMENT: {arg.content}
+
+SCORING (BE STRICT - use full range):
+- 0.1-0.2: Factually wrong or legally irrelevant
+- 0.3-0.4: Generic legal principle without case application
+- 0.5-0.6: Correct but lacks specific evidence or citations
+- 0.7-0.8: Strong with specific facts and legal reasoning
+- 0.9-1.0: Exceptional with binding authority (RARE)
+
+Response format: "Validity Score: X.XX"
+Brief explanation."""
+
             else:  # attack
-                evaluation_criteria = """
-                1. Validity of identified weaknesses or flaws
-                2. Strength of counter-arguments or counter-evidence
-                3. Relevance to undermining the opposing position
-                4. Quality of legal reasoning challenging the claim
-                5. Degree to which it raises reasonable doubt"""
-                score_guidance = """
-                - 0.2: Invalid criticism or irrelevant challenge
-                - 0.5: Raises minor concerns but lacks substantive impact
-                - 0.8: Identifies significant weakness with legal support
-                - 1.0: Exceptional - devastating critique with binding authority"""
-            
-            initial_prompt = f"""
-                You are a legal analyst evaluating the validity and relevance of {arg.argument_type} arguments for this legal case.
-                
-                CLAIM BEING EVALUATED: "{claim}"
-                Argument Type: {arg.argument_type} ({"supports the claim" if arg.argument_type == "support" else "challenges the claim"})
-                Argument Content: {arg.content}
-                
-                Evaluate this {arg.argument_type} argument based on:
-                {evaluation_criteria}
-                
-                Provide a validity score between 0 and 1, where:
-                {score_guidance}
-                Response format: "Validity Score: X.XX"
-                Include a brief explanation."""
+                initial_prompt = f"""You are a strict legal analyst evaluating this challenging argument.
+
+CASE: {task_info}
+CLAIM: "{claim}"  
+ARGUMENT: {arg.content}
+
+SCORING (BE STRICT - use full range):
+- 0.1-0.2: Invalid criticism or misunderstands the issue
+- 0.3-0.4: Generic objection without case-specific reasoning
+- 0.5-0.6: Valid concern but doesn't address key elements
+- 0.7-0.8: Strong challenge with specific counter-evidence
+- 0.9-1.0: Devastating critique with authority (RARE)
+
+Response format: "Validity Score: X.XX"
+Brief explanation."""
 
         if state.get("enable_streaming", False):
             initial_response = ""
@@ -453,7 +532,7 @@ def argument_validator(state: GraphState) -> GraphState:
         else:
             initial_response = call_llm(initial_prompt, temperature=0.3, max_tokens=256)
 
-        initial_validity_score = 0.5
+        initial_validity_score = 0.0
         try:
             if "Validity Score:" in initial_response:
                 score_text = initial_response.split("Validity Score:")[1].split()[0]
@@ -463,7 +542,7 @@ def argument_validator(state: GraphState) -> GraphState:
             pass
 
         # If weak, retrieve additional legal evidence
-        if initial_validity_score < 0.5:
+        if initial_validity_score < 0.3:
             print(f"Low validity score ({initial_validity_score:.2f}) for argument. Retrieving additional legal evidence...")
             search_query_prompt = f"""
                 Generate a specific legal search query to find evidence about this argument:
@@ -558,32 +637,37 @@ def argument_validator(state: GraphState) -> GraphState:
     print(f"  Moderate (0.5-0.8): {sum(1 for arg in validated_arguments if 0.5 <= getattr(arg, 'validity_score', 0) <= 0.8)}")
     print(f"  Low validity (<0.5): {sum(1 for arg in validated_arguments if getattr(arg, 'validity_score', 0) < 0.5)}")
 
-    # ============ QBAF SCORING INTEGRATION ============
+    # QBAF SCORING
     print("\n[QBAF] Applying QBAF-based argument scoring...")
     
-    # Choose semantics based on task - df_quad is most sophisticated
+    # Semantics based on task - df_quad is most sophisticated
     qbaf_semantics = "df_quad"
     # Alternative options: "weighted_sum", "weighted_product", "euler_based"
     
-    # Choose relation identification method
-    # Option 1: Fast heuristic (use_semantic_analysis=False) - based on Yes/No labels
-    # Option 2: Semantic analysis (use_semantic_analysis=True) - LLM-based NLI, slower but more accurate
-    use_semantic_analysis = False  # Set to True to enable semantic analysis
+    # Relation identification method
+    use_semantic_analysis = True
     
-    # Decision threshold for Yes/No classification
-    # Values > 0.5 make it harder to accept Yes (more conservative)
-    # Values < 0.5 make it easier to accept Yes (more liberal)
+    # Clash resolution
+    use_clash_resolution = True
+    
+    # Threshold to trigger clash resolution
+    clash_trigger_threshold = 0.2
+    
+    # Decision threshold
     decision_threshold = 0.5  # Neutral threshold
     
     task_context = f"{state.get('task_name', '')}: {state.get('task_info', '')}"
     claim = state.get("claim", "The claim is true")
+    case_text = state.get("task_info", "")
     
-    # Apply QBAF scoring with standard model
     validated_arguments, option_scores, qbaf_scorer = apply_qbaf_scoring(
         validated_arguments, 
         semantics=qbaf_semantics,
         use_semantic_analysis=use_semantic_analysis,
+        use_clash_resolution=use_clash_resolution,
+        clash_trigger_threshold=clash_trigger_threshold,
         task_context=task_context,
+        case_text=case_text,
         decision_threshold=decision_threshold,
         claim=claim
     )
@@ -594,9 +678,141 @@ def argument_validator(state: GraphState) -> GraphState:
     
     print(f"[QBAF] Scoring complete using {qbaf_semantics} semantics")
     print(f"[QBAF] Relation method: {'Semantic (LLM-based NLI)' if use_semantic_analysis else 'Heuristic (rule-based)'}")
-    # ================================================
+    print(f"[QBAF] Clash resolution: {'ENABLED (threshold=' + str(clash_trigger_threshold) + ')' if use_clash_resolution else 'DISABLED'}")
 
     return state
+
+
+def _invoke_final_judge(
+    task_name: str,
+    task_info: str,
+    claim: str,
+    validated_arguments: list,
+    rag_context: str,
+    claim_score: float
+) -> tuple:
+    """
+    Final Judge: Makes independent decision when QBAF score is borderline (0.45-0.55).
+    
+    The judge analyzes the case facts directly WITHOUT relying on the balanced score,
+    making a decisive ruling based on legal principles.
+    
+    Returns:
+        Tuple of (decision: "Yes"/"No", reasoning: str)
+    """
+    # Organize arguments for judge review
+    support_args = [arg for arg in validated_arguments if arg.argument_type == "support"]
+    attack_args = [arg for arg in validated_arguments if arg.argument_type == "attack"]
+    
+    # Build judge prompt based on task type
+    if task_name == "hearsay":
+        task_specific_instruction = """
+HEARSAY ANALYSIS FRAMEWORK:
+1. Is there an out-of-court statement?
+2. Is it offered to prove the truth of the matter asserted?
+3. If yes to both → Hearsay (answer "Yes")
+4. Consider exceptions: present sense impression, excited utterance, state of mind, business records, etc.
+5. Consider non-hearsay uses: effect on listener, verbal acts, impeachment, etc.
+
+DECISIVE RULE: If the statement is offered for its TRUTH and no exception applies → "Yes" (hearsay)
+"""
+    elif task_name == "learned_hands_courts" or task_name == "learned hands courts":
+        task_specific_instruction = """
+COURTS CLASSIFICATION FRAMEWORK:
+1. Is the PRIMARY question about PROCEDURE (how to file, deadlines, court rules)?
+2. Is it about LOGISTICS of hiring/communicating with a lawyer?
+3. Or is it about SUBSTANTIVE law (rights, liability, interpretation)?
+
+DECISIVE RULE: 
+- If primarily about HOW to interact with courts/lawyers → "Yes" (courts)
+- If primarily about WHAT the law says or legal rights → "No" (not courts)
+"""
+    else:
+        task_specific_instruction = """
+Analyze the core legal issue and make a decisive ruling.
+"""
+
+    judge_prompt = f"""You are a SENIOR JUDGE making a FINAL, BINDING DECISION on a borderline legal case.
+
+BACKGROUND:
+The argumentation framework produced a score of {claim_score:.3f}, which is essentially a TIE.
+Both sides have presented arguments of roughly equal strength.
+YOU must now make the FINAL DECISION based on your judicial expertise.
+
+CASE INFORMATION:
+{task_info}
+
+CLAIM TO EVALUATE:
+"{claim}"
+
+{task_specific_instruction}
+
+RELEVANT LEGAL DOCUMENTS:
+{rag_context[:2000]}
+
+ARGUMENTS PRESENTED:
+
+SUPPORTING THE CLAIM ({len(support_args)} arguments):
+"""
+    
+    for i, arg in enumerate(support_args[:5], 1):  # Limit to top 5
+        score = getattr(arg, 'validity_score', 0) or 0.0
+        judge_prompt += f"\n  {i}. [Score: {score:.2f}] {arg.content}"
+    
+    judge_prompt += f"""
+
+AGAINST THE CLAIM ({len(attack_args)} arguments):
+"""
+    
+    for i, arg in enumerate(attack_args[:5], 1):  # Limit to top 5
+        score = getattr(arg, 'validity_score', 0) or 0.0
+        judge_prompt += f"\n  {i}. [Score: {score:.2f}] {arg.content}"
+    
+    judge_prompt += """
+
+YOUR JUDICIAL DUTY:
+1. You CANNOT say "it depends" or "insufficient information"
+2. You MUST choose either "Yes" or "No"
+3. Base your decision on the FACTS and LEGAL PRINCIPLES, not the tied score
+4. Be DECISIVE - a judge must rule
+
+Respond in JSON format:
+{
+    "decision": "Yes" or "No",
+    "reasoning": "2-3 sentences explaining your judicial reasoning. Be specific about which legal principle or fact was decisive."
+}
+
+Return ONLY the JSON, no other text.
+"""
+
+    try:
+        response = call_llm(judge_prompt, temperature=0.2, max_tokens=512)
+        
+        # Parse JSON response
+        response = response.strip()
+        if response.startswith("```json"):
+            response = response.split("```json")[1].split("```")[0].strip()
+        elif response.startswith("```"):
+            response = response.split("```")[1].split("```")[0].strip()
+        
+        result = json.loads(response)
+        decision = result.get("decision", "No")
+        reasoning = result.get("reasoning", "Judicial decision based on case analysis.")
+        
+        # Normalize decision
+        if decision.lower() in ["yes", "true", "1"]:
+            decision = "Yes"
+        else:
+            decision = "No"
+            
+        return decision, reasoning
+        
+    except Exception as e:
+        print(f"[FINAL JUDGE] Error parsing response: {e}")
+        # Fallback: use original QBAF decision
+        fallback_decision = "Yes" if claim_score >= 0.5 else "No"
+        return fallback_decision, f"Fallback to QBAF score ({claim_score:.3f}) due to parsing error."
+
 
 def final_answer_generator(state: GraphState) -> GraphState:
     """
@@ -605,6 +821,9 @@ def final_answer_generator(state: GraphState) -> GraphState:
     The QBAF claim score determines the answer:
     - claim_score >= threshold → Yes (claim is TRUE)
     - claim_score < threshold → No (claim is FALSE)
+    
+    SPECIAL CASE: If claim_score is in borderline zone (0.45-0.55),
+    invoke Final Judge to make an independent decision.
     """
     print("[STEP] final_answer_generator: Synthesizing final answer for task:", state.get('task_name'))
     print("Generating final legal answer.")
@@ -615,6 +834,51 @@ def final_answer_generator(state: GraphState) -> GraphState:
     task_info = state.get("task_info", "")
     claim = state.get("claim", "The claim is true")
     qbaf_scores = state.get("qbaf_option_scores", {})
+
+    # Get QBAF decision info
+    decision_info = qbaf_scores.get('_decision', {})
+    claim_score = qbaf_scores.get('claim', {}).get('claim_score', 0.5)
+    
+    # DEBUG: Check what we're getting
+    print(f"[DEBUG] qbaf_scores keys: {qbaf_scores.keys() if qbaf_scores else 'EMPTY'}")
+    print(f"[DEBUG] claim dict: {qbaf_scores.get('claim', 'NOT FOUND')}")
+    print(f"[DEBUG] claim_score retrieved: {claim_score}")
+    
+    # Triggered for borderline cases
+    BORDERLINE_LOW = 0.45
+    BORDERLINE_HIGH = 0.55
+    judge_decision = None
+    judge_reasoning = ""
+    judge_used = False
+    
+    if BORDERLINE_LOW <= claim_score <= BORDERLINE_HIGH:
+        print(f"\n[FINAL JUDGE] Borderline score detected: {claim_score:.3f}")
+        print(f"[FINAL JUDGE] Score is in uncertain zone [{BORDERLINE_LOW}, {BORDERLINE_HIGH}]")
+        print(f"[FINAL JUDGE] Invoking independent judicial review...")
+        
+        judge_decision, judge_reasoning = _invoke_final_judge(
+            task_name=task_name,
+            task_info=task_info,
+            claim=claim,
+            validated_arguments=validated_arguments,
+            rag_context=rag_context,
+            claim_score=claim_score
+        )
+        judge_used = True
+        
+        print(f"[FINAL JUDGE] Decision: {judge_decision}")
+        print(f"[FINAL JUDGE] Reasoning: {judge_reasoning[:100]}...")
+        
+        # Store judge decision in state
+        state["judge_decision"] = {
+            "used": True,
+            "decision": judge_decision,
+            "reasoning": judge_reasoning,
+            "original_score": claim_score,
+            "triggered_because": f"Score {claim_score:.3f} in borderline zone [{BORDERLINE_LOW}, {BORDERLINE_HIGH}]"
+        }
+    else:
+        state["judge_decision"] = {"used": False, "original_score": claim_score}
 
     # Organize arguments by type (support vs attack)
     support_args = [arg for arg in validated_arguments if arg.argument_type == "support"]
@@ -764,8 +1028,25 @@ You are a professional legal reasoning assistant.
 
         """
     
+    # Triggered for borderline cases
+    if judge_used and judge_decision:
+        prompt += f"""
+    The QBAF score ({claim_score:.3f}) was borderline (between 0.45-0.55).
+    A Senior Judge has reviewed the case and made a BINDING decision.
     
-    prompt += f"""
+    JUDGE'S DECISION: {judge_decision}
+    JUDGE'S REASONING: {judge_reasoning}
+    
+    YOU MUST follow the Judge's decision. Provide your response in JSON format:
+    {{
+        "answer": "{judge_decision}",
+        "explanation": "2-3 sentences incorporating the judge's reasoning. Cite relevant legal documents using [REF-X] format where appropriate.",
+    }}
+    
+    Return ONLY valid JSON, no additional text.
+    """
+    else:
+        prompt += f"""
     Based on the above QBAF claim score and detailed arguments, provide your response in the following JSON format ONLY:
     {{
         "answer": "Yes" or "No",

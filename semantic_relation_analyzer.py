@@ -174,7 +174,9 @@ Return ONLY valid JSON.
             Dictionary mapping (arg_i_id, arg_j_id) to ArgumentRelation
         """
         relations = {}
-        total_pairs = len(arguments) * (len(arguments) - 1)
+        # Only analyze each pair once (i < j), not both directions
+        # This cuts API calls in half: n*(n-1)/2 instead of n*(n-1)
+        total_pairs = len(arguments) * (len(arguments) - 1) // 2
         processed = 0
         
         print(f"[Semantic Analysis] Analyzing {total_pairs} argument pairs...")
@@ -182,7 +184,7 @@ Return ONLY valid JSON.
         
         for i, arg_i in enumerate(arguments):
             for j, arg_j in enumerate(arguments):
-                if i == j:
+                if i >= j:  # Changed from i == j to i >= j (only analyze i < j)
                     continue
                 
                 arg_i_id = f"arg_{i}"

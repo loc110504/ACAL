@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
-from node import (
+from node_clash_resolution import (
     argument_validator,
     multi_agent_argument_generator,
     # overall_plan_generator,

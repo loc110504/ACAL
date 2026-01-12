@@ -79,25 +79,67 @@ class TestFullLegalWorkflow(unittest.TestCase):
         return result
 
     def test_inference_from_tsv(self):
-        all_results = []
-
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_file = f"workflow_results_{timestamp}.json"
+        
+        # Initialize the JSON file with opening bracket
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write("[\n")
+        
+        first_result = True
+        total_processed = 0
+        
         with open(TSV_PATH, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f, delimiter="\t")
-            for row in reader:
+            rows = list(reader)  # Read all rows to get total count
+            total_rows = len(rows)
+            
+            for row in rows:
                 sample_index = int(row["index"])
                 task_info = row["text"]
 
-                print(f"\nRunning sample index: {sample_index}")
-                result = self.run_single_sample(task_info, sample_index)
-                all_results.append(result)
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = f"workflow_results_all_{timestamp}.json"
-
-        with open(output_file, "w", encoding="utf-8") as f:
-            json.dump(all_results, f, indent=2, ensure_ascii=False)
-
-        print(f"\nSaved all results to: {output_file}")
+                print(f"\n{'='*60}")
+                print(f"Running sample {total_processed + 1}/{total_rows} (index: {sample_index})")
+                print(f"{'='*60}")
+                
+                try:
+                    result = self.run_single_sample(task_info, sample_index)
+                    
+                    # Append result to file immediately
+                    with open(output_file, "a", encoding="utf-8") as out_f:
+                        if not first_result:
+                            out_f.write(",\n")  # Add comma before next item
+                        json.dump(result, out_f, indent=2, ensure_ascii=False)
+                        out_f.flush()  # Ensure data is written to disk
+                    
+                    first_result = False
+                    total_processed += 1
+                    print(f"\n✅ Sample {sample_index} completed and saved to {output_file}")
+                    
+                except Exception as e:
+                    print(f"\n❌ Error processing sample {sample_index}: {e}")
+                    # Log error but continue with next sample
+                    error_result = {
+                        "sample_index": sample_index,
+                        "error": str(e),
+                        "task_info": task_info[:200] + "..." if len(task_info) > 200 else task_info
+                    }
+                    with open(output_file, "a", encoding="utf-8") as out_f:
+                        if not first_result:
+                            out_f.write(",\n")
+                        json.dump(error_result, out_f, indent=2, ensure_ascii=False)
+                        out_f.flush()
+                    first_result = False
+                    total_processed += 1
+        
+        # Close the JSON array
+        with open(output_file, "a", encoding="utf-8") as f:
+            f.write("\n]")
+        
+        print(f"\n{'='*60}")
+        print(f"✅ COMPLETED: Processed {total_processed}/{total_rows} samples")
+        print(f"📁 Results saved to: {output_file}")
+        print(f"{'='*60}")
 
 
 if __name__ == "__main__":

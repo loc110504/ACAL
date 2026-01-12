@@ -63,7 +63,7 @@ def _call_gpt(prompt: str, temperature: float = 0.3, max_tokens: int = 1024, ret
 
 def _call_llama(prompt: str, temperature: float = 0.3, max_tokens: int = 1024, retries: int = 3) -> str:
     """Call Azure Llama 3.3 70B"""
-    endpoint = "https://22127-mbrabz8d-swedencentral.services.ai.azure.com/openai/v1/"
+    endpoint = ""
     api_key = os.getenv("AZURE_API_KEY")
     
     if not api_key:
@@ -93,36 +93,6 @@ def _call_llama(prompt: str, temperature: float = 0.3, max_tokens: int = 1024, r
     raise Exception("Llama: All retries failed")
 
 
-def _call_phi4(prompt: str, temperature: float = 0.3, max_tokens: int = 1024, retries: int = 3) -> str:
-    """Call Azure Phi-4"""
-    endpoint = "https://22127-mbrabz8d-swedencentral.services.ai.azure.com/openai/v1/"
-    api_key = os.getenv("AZURE_API_KEY")
-    
-    if not api_key:
-        raise ValueError("Missing AZURE_API_KEY in environment")
-    
-    client = OpenAI(base_url=endpoint, api_key=api_key)
-    
-    for attempt in range(retries):
-        try:
-            completion = client.chat.completions.create(
-                model="Phi-4",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
-            return completion.choices[0].message.content.strip()
-            
-        except RateLimitError:
-            wait = 2 ** attempt + random.uniform(0, 1)
-            print(f"Phi-4 Rate limited. Retrying in {wait:.2f}s...")
-            time.sleep(wait)
-        except Exception as e:
-            print(f"Phi-4 Error (attempt {attempt+1}/{retries}): {e}")
-            if attempt < retries - 1:
-                time.sleep(2)
-    
-    raise Exception("Phi-4: All retries failed")
 
 
 def _call_gemini(prompt: str, temperature: float = 0.3, max_tokens: int = 1024, retries: int = 3) -> str:
@@ -196,7 +166,7 @@ def _call_gemini_stream(prompt: str, temperature: float = 0.3, max_tokens: int =
 
 def call_llm(
     prompt: str,
-    provider: Literal["gemini", "gpt", "llama", "phi4"] = "gemini",
+    provider: Literal["gemini", "gpt", "llama"] = "gemini",
     temperature: float = 0.3,
     max_tokens: int = 1024,
     retries: int = 3
@@ -206,23 +176,18 @@ def call_llm(
     
     Args:
         prompt: The input prompt
-        provider: LLM provider to use ("gemini", "gpt", "llama", "phi4")
+        provider: LLM provider to use ("gemini", "gpt", "llama")
         temperature: Sampling temperature (0.0 - 1.0)
         max_tokens: Maximum tokens to generate
         retries: Number of retry attempts on failure
     
     Returns:
         Generated text as string
-    
-    Examples:
-        >>> response = call_llm("What is hearsay?", provider="gpt")
-        >>> response = call_llm("Analyze this case", provider="gemini", temperature=0.7)
     """
     provider_map = {
         "gemini": _call_gemini,
         "gpt": _call_gpt,
         "llama": _call_llama,
-        "phi4": _call_phi4,
     }
     
     if provider not in provider_map:

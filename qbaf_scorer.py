@@ -2,7 +2,10 @@ import numpy as np
 from typing import List, Dict, Tuple, Optional, Set
 from dataclasses import dataclass, field
 import math
+import json
+import re
 from semantic_relation_analyzer import analyze_argument_relations_semantic
+from llm_caller import call_llm
 
 
 @dataclass
@@ -189,6 +192,11 @@ class QBAFScorer:
         """
         Build relations using LLM-based semantic analysis.
         SLOW but more accurate - analyzes actual argument content.
+        
+        Relations are made BIDIRECTIONAL:
+        - If A attacks B, we also add B attacks A
+        - If A supports B, we also add B supports A
+        This ensures symmetric treatment in QBAF calculations.
         """
         # Analyze all relations using semantic analyzer
         relations = analyze_argument_relations_semantic(
@@ -199,14 +207,279 @@ class QBAFScorer:
             threshold_support=0.6
         )
         
-        # Add relations to QBAF graph
+        # Add relations to QBAF graph (BIDIRECTIONAL)
         for (src_id, tgt_id), relation in relations.items():
             if relation.relation_type == "attack":
-                self.add_attack(src_id, tgt_id)
+                self.add_attack(src_id, tgt_id)  # src attacks tgt
+                self.add_attack(tgt_id, src_id)  # tgt attacks src (bidirectional)
             elif relation.relation_type == "support":
-                self.add_support(src_id, tgt_id)
+                self.add_support(src_id, tgt_id)  # src supports tgt
+                self.add_support(tgt_id, src_id)  # tgt supports src (bidirectional)
             # neutral relations are not added
     
+    def resolve_argument_clashes(
+        self, 
+        arguments: List,
+        claim: str,
+        case_text: str,
+        task_context: str = "",
+        provider: str = "",
+        clash_trigger_threshold: float = 0.2,
+        base_adjustment: float = 0.15
+    ) -> Dict[str, float]:
+        """
+        Resolve clashes between opposing arguments using LLM analysis.
+        
+        ONLY processes pairs that have ATTACK RELATIONS in the QBAF graph.
+        This respects semantic analysis results - if two args don't conflict
+        in the graph, they won't be compared.
+        
+        ORDER-INDEPENDENT BATCH EVALUATION:
+        1. Find pairs with attack relations in QBAF graph
+        2. Evaluate pairs using ORIGINAL scores (if similar)
+        3. Count wins/losses for each argument across all its clashes
+        4. Calculate adjustment based on win RATE (not raw count)
+        
+        Args:
+            arguments: Original list of Argument objects
+            claim: The central claim being evaluated
+            case_text: The case/scenario text for context
+            task_context: Task description (e.g., "hearsay analysis")
+            provider: LLM provider to use ("gpt", "gemini", etc.)
+            clash_trigger_threshold: Only resolve if |score_diff| < threshold (default 0.2)
+            base_adjustment: Maximum adjustment for worst performer (default 0.15)
+        
+        Returns:
+            Dictionary mapping argument IDs to their adjusted scores
+        """
+        print(f"\n[CLASH] Batch clash resolution (threshold={clash_trigger_threshold})...")
+        
+        # Build lookup from argument ID to original Argument object and score
+        arg_lookup = {}
+        for i, arg in enumerate(arguments):
+            arg_id = f"arg_{i}"
+            if arg_id in self.arguments:
+                arg_lookup[arg_id] = {
+                    "arg": arg,
+                    "qbaf": self.arguments[arg_id],
+                    "original_score": self.arguments[arg_id].base_score
+                }
+        
+        # Find pairs that have ATTACK relations in the QBAF graph
+        # Only these pairs should be evaluated for clash resolution
+        attack_pairs = []
+        for arg_id, qbaf_arg in self.arguments.items():
+            if qbaf_arg.is_decision_node:
+                continue
+            for attacked_id in qbaf_arg.attacks:
+                # Skip attacks on the claim node
+                if attacked_id == "claim":
+                    continue
+                # Only consider cross-type attacks (support vs attack)
+                if arg_id in arg_lookup and attacked_id in arg_lookup:
+                    arg1_type = arg_lookup[arg_id]["arg"].argument_type
+                    arg2_type = arg_lookup[attacked_id]["arg"].argument_type
+                    if arg1_type != arg2_type:
+                        # Add pair (sorted to avoid duplicates)
+                        pair = tuple(sorted([arg_id, attacked_id]))
+                        if pair not in attack_pairs:
+                            attack_pairs.append(pair)
+        
+        if not attack_pairs:
+            print("[CLASH] No attack relations found between arguments")
+            return {}
+        
+        print(f"[CLASH] Found {len(attack_pairs)} attack relation pairs to evaluate")
+        
+        # Track wins and losses for each argument (order-independent)
+        arg_stats = {arg_id: {"wins": 0, "losses": 0, "total_clashes": 0} 
+                     for arg_id in self.arguments.keys()}
+        
+        clash_results = []
+        skipped_count = 0
+        resolved_count = 0
+        no_relation_count = 0
+        
+        # PHASE 1: Evaluate pairs WITH ATTACK RELATIONS using ORIGINAL scores
+        print(f"[CLASH] Phase 1: Evaluating pairs with attack relations...")
+        for arg1_id, arg2_id in attack_pairs:
+            # Determine which is support and which is attack
+            arg1_data = arg_lookup[arg1_id]
+            arg2_data = arg_lookup[arg2_id]
+            
+            if arg1_data["arg"].argument_type == "support":
+                sup_id, sup_data = arg1_id, arg1_data
+                att_id, att_data = arg2_id, arg2_data
+            else:
+                sup_id, sup_data = arg2_id, arg2_data
+                att_id, att_data = arg1_id, arg1_data
+            
+            sup_original_score = sup_data["original_score"]
+            att_original_score = att_data["original_score"]
+            
+            # Check if this pair needs resolution (using ORIGINAL scores)
+            score_diff = abs(sup_original_score - att_original_score)
+            
+            if score_diff >= clash_trigger_threshold:
+                # Clear winner - no clash needed
+                skipped_count += 1
+                winner = "support" if sup_original_score > att_original_score else "attack"
+                print(f"  [{sup_id} vs {att_id}] SKIP - clear winner ({winner}, diff={score_diff:.2f})")
+                continue
+            
+            # Scores are similar - call LLM to resolve
+            resolved_count += 1
+            print(f"  [{sup_id} vs {att_id}] RESOLVING ({sup_original_score:.2f} vs {att_original_score:.2f})")
+            
+            winner_id, _ = self._resolve_single_clash(
+                sup_id=sup_id,
+                sup_content=sup_data["arg"].content,
+                sup_score=sup_original_score,  # Always use ORIGINAL score
+                att_id=att_id,
+                att_content=att_data["arg"].content,
+                att_score=att_original_score,  # Always use ORIGINAL score
+                claim=claim,
+                case_text=case_text,
+                task_context=task_context,
+                provider=provider
+            )
+            
+            # Record win/loss (don't adjust scores yet!)
+            loser_id = att_id if winner_id == sup_id else sup_id
+            arg_stats[winner_id]["wins"] += 1
+            arg_stats[winner_id]["total_clashes"] += 1
+            arg_stats[loser_id]["losses"] += 1
+            arg_stats[loser_id]["total_clashes"] += 1
+            
+            clash_results.append({
+                "support": sup_id,
+                "attack": att_id,
+                "winner": winner_id,
+                "loser": loser_id
+            })
+        
+        print(f"\n[CLASH] Phase 1 complete: {resolved_count} resolved, {skipped_count} skipped")
+        
+        # PHASE 2: Calculate adjustments based on WIN RATE
+        # Now symmetric: winners get bonus, losers get penalty
+        print(f"[CLASH] Phase 2: Calculating adjustments based on win rate...")
+        score_adjustments = {}
+        
+        for arg_id, stats in arg_stats.items():
+            if stats["total_clashes"] == 0:
+                continue  # No clashes for this argument
+            
+            win_rate = stats["wins"] / stats["total_clashes"]
+            # win_rate = 1.0 → full bonus (always won)
+            # win_rate = 0.5 → no change (won half, lost half)
+            # win_rate = 0.0 → full penalty (always lost)
+            
+            # SYMMETRIC adjustment formula:
+            # - win_rate > 0.5 → positive adjustment (bonus)
+            # - win_rate < 0.5 → negative adjustment (penalty)
+            # - win_rate = 0.5 → no adjustment
+            adjustment = base_adjustment * (win_rate - 0.5) * 2  # Scale to [-base, +base]
+            
+            if abs(adjustment) > 0.001:  # Only record meaningful adjustments
+                score_adjustments[arg_id] = adjustment
+                direction = "+" if adjustment > 0 else ""
+                print(f"  {arg_id}: {stats['wins']}W/{stats['losses']}L (rate={win_rate:.2f}) → adj={direction}{adjustment:.3f}")
+        
+        # PHASE 3: Apply adjustments to base scores
+        print(f"\n[CLASH] Phase 3: Applying adjustments...")
+        for arg_id, adjustment in score_adjustments.items():
+            if arg_id in self.arguments and not self.arguments[arg_id].is_decision_node:
+                old_score = self.arguments[arg_id].base_score
+                # Clamp to [0.1, 0.95] to prevent extreme scores
+                new_score = max(0.1, min(0.95, old_score + adjustment))
+                self.arguments[arg_id].base_score = new_score
+                print(f"  {arg_id}: {old_score:.3f} → {new_score:.3f}")
+        
+        # Print summary
+        support_wins = sum(1 for r in clash_results 
+                          if r["winner"] in arg_lookup and 
+                          arg_lookup[r["winner"]]["arg"].argument_type == "support")
+        attack_wins = len(clash_results) - support_wins
+        print(f"\n[CLASH] Final: {support_wins} support wins, {attack_wins} attack wins")
+        
+        return score_adjustments
+    
+    def _resolve_single_clash(
+        self,
+        sup_id: str,
+        sup_content: str,
+        sup_score: float,
+        att_id: str,
+        att_content: str,
+        att_score: float,
+        claim: str,
+        case_text: str,
+        task_context: str,
+        provider: str
+    ) -> Tuple[str, float]:
+        """
+        Resolve a single clash between a support and attack argument.
+        
+        Returns:
+            Tuple of (winner_id, adjustment_amount)
+        """
+        prompt = f"""You are a legal reasoning expert. Analyze these two conflicting arguments about a legal claim.
+
+CLAIM: {claim}
+
+CASE DETAILS:
+{case_text[:1500]}
+
+TASK CONTEXT: {task_context}
+
+ARGUMENT A (SUPPORTS the claim):
+"{sup_content}"
+Current Score: {sup_score:.2f}
+
+ARGUMENT B (ATTACKS the claim):
+"{att_content}"
+Current Score: {att_score:.2f}
+
+These arguments directly conflict. Analyze which argument is STRONGER and more legally sound in the context of this specific case.
+
+Consider:
+1. Which argument is more directly relevant to the case facts?
+2. Which argument applies the correct legal standard?
+3. Which argument has stronger logical reasoning?
+4. Does either argument misinterpret the facts or law?
+
+Respond in JSON format:
+{{
+    "winner": "A" or "B",
+    "winner_reason": "Brief explanation of why this argument is stronger",
+    "loser_weakness": "Brief explanation of the weaker argument's flaw",
+    "adjustment": 0.1 to 0.4 (how much to reduce the loser's score - use higher values for clear defeats)
+}}
+
+Only output the JSON, no other text."""
+
+        try:
+            response = call_llm(prompt, provider=provider, temperature=0.2, max_tokens=500)
+            
+            # Parse JSON response
+            json_match = re.search(r'\{[^{}]*\}', response, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+                winner = result.get("winner", "A")
+                adjustment = float(result.get("adjustment", 0.2))
+                adjustment = max(0.1, min(0.4, adjustment))  # Clamp to [0.1, 0.4]
+                
+                winner_id = sup_id if winner == "A" else att_id
+                print(f"  [{sup_id} vs {att_id}] Winner: {winner} (adj: {adjustment:.2f}) - {result.get('winner_reason', '')[:60]}...")
+                return winner_id, adjustment
+            else:
+                print(f"  [{sup_id} vs {att_id}] Failed to parse response, defaulting to tie")
+                return sup_id, 0.1  # Default: small adjustment
+                
+        except Exception as e:
+            print(f"  [{sup_id} vs {att_id}] Error: {e}, defaulting to tie")
+            return sup_id, 0.1
+
     def compute_final_scores(self) -> Dict[str, float]:
         """
         Compute final scores for all arguments using selected semantics.
@@ -511,7 +784,7 @@ class QBAFScorer:
         claim_score = scores.get("claim", {}).get("claim_score", 0.5)
         claim_content = scores.get("claim", {}).get("content", "The claim")
         
-        # Decision logic: If score >= threshold → Yes (claim is true), otherwise → No
+        # Decision logic: If score >= threshold -> Yes (claim is true), otherwise -> No
         if claim_score >= threshold:
             winner = yes_option
         else:
@@ -578,9 +851,13 @@ def apply_qbaf_scoring(
     arguments: List, 
     semantics: str = "df_quad",
     use_semantic_analysis: bool = False,
+    use_clash_resolution: bool = False,
+    clash_trigger_threshold: float = 0.2,
     task_context: str = "",
+    case_text: str = "",
     decision_threshold: float = 0.5,
-    claim: str = "The claim is true"
+    claim: str = "The claim is true",
+    llm_provider: str = "gemini" 
 ) -> Tuple[List, Dict, 'QBAFScorer']:
     """
     Apply standard QBAF scoring to a list of arguments.
@@ -589,15 +866,20 @@ def apply_qbaf_scoring(
     - Central CLAIM node (base score 0.5)
     - Evidence/Arguments that SUPPORT or ATTACK the claim
     - Inter-argument relations
+    - Optional: Clash resolution via LLM (adjusts scores before QBAF computation)
     - claim_score >= threshold → Yes, else No
     
     Args:
         arguments: List of Argument objects (with argument_type="support" or "attack")
         semantics: Type of gradual semantics ("df_quad", "weighted_sum", "weighted_product", "euler_based")
         use_semantic_analysis: Use LLM-based semantic analysis for relations (slower but more accurate)
+        use_clash_resolution: Use LLM to resolve clashes between support/attack arguments
+        clash_trigger_threshold: Per-pair threshold - only resolve if |arg1_score - arg2_score| < threshold (default 0.2)
         task_context: Description of legal task for semantic analysis context
+        case_text: The case/scenario text for clash resolution context
         decision_threshold: Threshold for Yes decision (default 0.5)
         claim: The central thesis being evaluated
+        llm_provider: LLM provider for clash resolution ("gpt", "gemini", etc.)
     
     Returns:
         Tuple of (updated_arguments, scores_dict, scorer)
@@ -614,7 +896,21 @@ def apply_qbaf_scoring(
         claim=claim
     )
     
-    # Compute scores using DF-QuAD
+    # Resolve clashes between argument pairs if enabled
+    # Each (support, attack) pair is checked individually:
+    # - If scores are similar (diff < threshold) → call LLM to resolve
+    # - If one is clearly stronger → skip (no LLM call needed)
+    if use_clash_resolution and case_text:
+        scorer.resolve_argument_clashes(
+            arguments=arguments,
+            claim=claim,
+            case_text=case_text,
+            task_context=task_context,
+            provider=llm_provider,
+            clash_trigger_threshold=clash_trigger_threshold
+        )
+    
+    # Compute scores using DF-QuAD (after clash resolution adjustments)
     final_scores = scorer.compute_final_scores()
     
     # Update original arguments with QBAF scores
@@ -626,6 +922,7 @@ def apply_qbaf_scoring(
             arg.validity_score = qbaf_arg.final_score    # Replace with QBAF score
             arg.qbaf_support_impact = qbaf_arg.support_impact
             arg.qbaf_attack_impact = qbaf_arg.attack_impact
+            arg.clash_adjusted_base = qbaf_arg.base_score  # Track clash-adjusted base score
     
     # Get scores
     scores = scorer.get_option_scores()
@@ -636,6 +933,7 @@ def apply_qbaf_scoring(
     # Print summary
     print("\n=== QBAF Scoring Summary (Standard Model) ===")
     print(f"\nClaim: \"{claim}\"")
+    print(f"Clash Resolution: {'ENABLED' if use_clash_resolution else 'DISABLED'}")
     print(f"Claim Score: {claim_score:.3f} ⭐")
     print(f"Threshold: {decision_threshold}")
     print(f"Result: {winner} (claim is {'TRUE' if winner == 'Yes' else 'FALSE'})")
