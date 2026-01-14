@@ -92,7 +92,7 @@ Return ONLY valid JSON.
 """
         
         try:
-            response = call_llm(prompt, temperature=0.2, max_tokens=256)
+            response = call_llm(prompt, temperature=0.2)
             
             # Parse JSON response
             # Clean response - remove markdown code blocks if present

@@ -3,7 +3,7 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 import numpy as np
 
 # Load file với tất cả các cột
-df = pd.read_csv("answers/hearsay/result_final.tsv", sep='\t')
+df = pd.read_csv("answers/hearsay/workflow_results_20260113_002949.tsv", sep='\t')
 
 # Chuẩn hóa các giá trị Yes/No (uppercase)
 df['golden_answer'] = df['golden_answer'].str.strip().str.capitalize()

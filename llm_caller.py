@@ -166,7 +166,7 @@ def _call_gemini_stream(prompt: str, temperature: float = 0.3, max_tokens: int =
 
 def call_llm(
     prompt: str,
-    provider: Literal["gemini", "gpt", "llama"] = "gemini",
+    provider: Literal["gemini", "gpt", "llama"] = "gpt",
     temperature: float = 0.3,
     max_tokens: int = 1024,
     retries: int = 3
@@ -198,7 +198,7 @@ def call_llm(
 
 def call_llm_stream(
     prompt: str,
-    provider: Literal["gemini"] = "gemini",
+    provider: Literal["gemini", "gpt", "llama"] = "gpt",
     temperature: float = 0.3,
     max_tokens: int = 1024
 ) -> Generator[str, None, None]:
