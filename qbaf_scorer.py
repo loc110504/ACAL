@@ -459,7 +459,7 @@ Respond in JSON format:
 Only output the JSON, no other text."""
 
         try:
-            response = call_llm(prompt, provider=provider, temperature=0.2, max_tokens=500)
+            response = call_llm(prompt, temperature=0.2, max_tokens=500)
             
             # Parse JSON response
             json_match = re.search(r'\{[^{}]*\}', response, re.DOTALL)

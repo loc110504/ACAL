@@ -226,9 +226,12 @@ Return ONLY valid JSON.
         neutral_count = sum(1 for r in relations.values() if r.relation_type == "neutral")
         
         print(f"\n[Semantic Analysis] Results:")
-        print(f"  Attack relations:  {attack_count} ({attack_count/total_pairs*100:.1f}%)")
-        print(f"  Support relations: {support_count} ({support_count/total_pairs*100:.1f}%)")
-        print(f"  Neutral relations: {neutral_count} ({neutral_count/total_pairs*100:.1f}%)")
+        if total_pairs > 0:
+            print(f"  Attack relations:  {attack_count} ({attack_count/total_pairs*100:.1f}%)")
+            print(f"  Support relations: {support_count} ({support_count/total_pairs*100:.1f}%)")
+            print(f"  Neutral relations: {neutral_count} ({neutral_count/total_pairs*100:.1f}%)")
+        else:
+            print(f"  No argument pairs to analyze (0 or 1 arguments)")
         
         return relations
     

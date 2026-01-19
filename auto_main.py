@@ -2,6 +2,7 @@ import unittest
 import sys
 import json
 import csv
+import argparse
 from datetime import datetime
 from state import Argument, GraphState
 from node import (
@@ -15,7 +16,37 @@ from node import (
     final_answer_generator
 )
 
-TSV_PATH = "data/learned_hands_courts/test.tsv"
+TSV_PATH = "data/hearsay/test.tsv"
+
+# Global variable to store processed indices from previous run
+PROCESSED_INDICES = set()
+
+
+def load_processed_indices(json_path: str) -> set:
+    """
+    Load sample indices that were successfully processed from a previous workflow results JSON file.
+    Only samples WITHOUT an 'error' field are considered successfully processed.
+    """
+    processed = set()
+    failed = set()
+    try:
+        with open(json_path, "r", encoding="utf-8") as f:
+            results = json.load(f)
+            for result in results:
+                if "sample_index" in result:
+                    # Only count as processed if there's no error
+                    if "error" not in result:
+                        processed.add(result["sample_index"])
+                    else:
+                        failed.add(result["sample_index"])
+        print(f"📂 Loaded from: {json_path}")
+        print(f"   ✅ Successfully processed: {len(processed)} samples")
+        print(f"   ❌ Failed (will retry): {len(failed)} samples")
+    except FileNotFoundError:
+        print(f"⚠️ Previous results file not found: {json_path}")
+    except json.JSONDecodeError as e:
+        print(f"⚠️ Error parsing JSON file: {e}")
+    return processed
 
 
 class TestFullLegalWorkflow(unittest.TestCase):
@@ -79,6 +110,8 @@ class TestFullLegalWorkflow(unittest.TestCase):
         return result
 
     def test_inference_from_tsv(self):
+        global PROCESSED_INDICES
+        
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_file = f"workflow_results_{timestamp}.json"
         
@@ -88,18 +121,29 @@ class TestFullLegalWorkflow(unittest.TestCase):
         
         first_result = True
         total_processed = 0
+        total_skipped = 0
         
         with open(TSV_PATH, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f, delimiter="\t")
             rows = list(reader)  # Read all rows to get total count
             total_rows = len(rows)
             
+            # Calculate how many will be processed vs skipped
+            rows_to_process = [row for row in rows if int(row["index"]) not in PROCESSED_INDICES]
+            print(f"\n📊 Total samples: {total_rows}, Already processed: {len(PROCESSED_INDICES)}, To process: {len(rows_to_process)}")
+            
             for row in rows:
                 sample_index = int(row["index"])
                 task_info = row["text"]
+                
+                # Skip already processed samples
+                if sample_index in PROCESSED_INDICES:
+                    total_skipped += 1
+                    print(f"⏭️ Skipping sample {sample_index} (already processed)")
+                    continue
 
                 print(f"\n{'='*60}")
-                print(f"Running sample {total_processed + 1}/{total_rows} (index: {sample_index})")
+                print(f"Running sample {total_processed + 1}/{len(rows_to_process)} (index: {sample_index})")
                 print(f"{'='*60}")
                 
                 try:
@@ -137,10 +181,25 @@ class TestFullLegalWorkflow(unittest.TestCase):
             f.write("\n]")
         
         print(f"\n{'='*60}")
-        print(f"✅ COMPLETED: Processed {total_processed}/{total_rows} samples")
+        print(f"✅ COMPLETED: Processed {total_processed} new samples, Skipped {total_skipped} already processed")
         print(f"📁 Results saved to: {output_file}")
         print(f"{'='*60}")
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run legal workflow on samples")
+    parser.add_argument(
+        "--resume", "-r",
+        type=str,
+        default=None,
+        help="Path to previous workflow results JSON to resume from (skip already processed samples)"
+    )
+    args, remaining = parser.parse_known_args()
+    
+    # Load processed indices if resume file provided
+    if args.resume:
+        PROCESSED_INDICES = load_processed_indices(args.resume)
+    
+    # Pass remaining args to unittest
+    sys.argv = [sys.argv[0]] + remaining
     unittest.main(verbosity=2)

@@ -12,9 +12,9 @@ TASK_CONFIGS = {
         "has_slice": True  # Hearsay data has 'slice' column
     },
     "learned_hands_courts": {
-        "json_path": "workflow_results_20260113_144801.json",
+        "json_path": "workflow_results_20260117_014605.json",
         "golden_tsv_path": "data/learned_hands_courts/test.tsv",
-        "output_tsv_path": "workflow_results_20260113_144801.tsv",
+        "output_tsv_path": "learned_hands_courts_gemini25_flash_thinking.tsv",
         "has_slice": False  # Learned hands courts doesn't have 'slice' column
     }
 }

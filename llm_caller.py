@@ -32,17 +32,25 @@ class JsonAnswer(BaseModel):
 # ============ Provider Implementations ============
 
 def _call_gpt(prompt: str, temperature: float = 0.3, max_tokens: int = 1024, retries: int = 3) -> str:
-    """Call OpenAI GPT-4o-mini"""
-    api_key = os.getenv("OPENAI_API")
-    if not api_key:
-        raise ValueError("Missing OPENAI_API key in environment")
+    """Call Azure OpenAI GPT-4o-mini"""
+    endpoint = os.getenv("AZURE_OPENAI_ENDPOINT")
+    api_key = os.getenv("AZURE_OPENAI_API_KEY")
+    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
     
-    client = OpenAI(api_key=api_key)
+    if not endpoint or not api_key:
+        raise ValueError("Missing AZURE_OPENAI_ENDPOINT or AZURE_OPENAI_API_KEY in environment")
+    
+    client = OpenAI(
+        base_url=f"{endpoint}/openai/deployments/{deployment}",
+        api_key=api_key,
+        default_query={"api-version": "2024-08-01-preview"},
+        default_headers={"api-key": api_key}
+    )
     
     for attempt in range(retries):
         try:
             completion = client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=deployment,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=temperature,
                 max_tokens=max_tokens,
@@ -94,7 +102,6 @@ def _call_llama(prompt: str, temperature: float = 0.3, max_tokens: int = 1024, r
 
 
 
-
 def _call_gemini(prompt: str, temperature: float = 0.3, max_tokens: int = 1024, retries: int = 3) -> str:
     """Call Google Gemini"""
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
@@ -106,10 +113,13 @@ def _call_gemini(prompt: str, temperature: float = 0.3, max_tokens: int = 1024, 
     for attempt in range(retries):
         try:
             response = client.models.generate_content(
-                model="gemini-2.5-flash-lite",
+                model="gemini-2.5-flash",
                 config=types.GenerateContentConfig(
                     temperature=temperature,
-                    max_output_tokens=min(max_tokens, 2048)
+                    max_output_tokens= max(max_tokens, 4096),
+                    thinking_config=types.ThinkingConfig(
+                        thinking_budget=0  # Disabled thinking
+                    )
                 ),
                 contents=prompt
             )
@@ -135,7 +145,7 @@ def _call_gemini_stream(prompt: str, temperature: float = 0.3, max_tokens: int =
         client = genai.Client(api_key=api_key)
         
         response_stream = client.models.generate_content_stream(
-            model="gemini-2.5-flash-lite",
+            model="gemini-2.5-flash",
             config=types.GenerateContentConfig(
                 temperature=temperature,
                 max_output_tokens=min(max_tokens, 1024)
@@ -166,7 +176,7 @@ def _call_gemini_stream(prompt: str, temperature: float = 0.3, max_tokens: int =
 
 def call_llm(
     prompt: str,
-    provider: Literal["gemini", "gpt", "llama"] = "gpt",
+    provider: Literal["gemini", "gpt", "llama"] = "gemini",
     temperature: float = 0.3,
     max_tokens: int = 1024,
     retries: int = 3
@@ -198,7 +208,7 @@ def call_llm(
 
 def call_llm_stream(
     prompt: str,
-    provider: Literal["gemini", "gpt", "llama"] = "gpt",
+    provider: Literal["gemini", "gpt", "llama"] = "gemini",
     temperature: float = 0.3,
     max_tokens: int = 1024
 ) -> Generator[str, None, None]:

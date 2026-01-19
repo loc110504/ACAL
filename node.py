@@ -149,11 +149,18 @@ def agent_selector(state: GraphState, type: str) -> GraphState:
     Provide only the JSON object in your response. Do not include any explanation outside the JSON.
     """
 
-    selection_response = call_llm(selection_prompt, temperature=0.7, max_tokens=1024)
+    selection_response = call_llm(selection_prompt, temperature=0.7, max_tokens=2048)
     
     # Parse JSON response and extract selected_agents list
     try:
-        selection_json = json.loads(selection_response)
+        # Clean potential markdown code blocks
+        cleaned_response = selection_response.strip()
+        if cleaned_response.startswith("```json"):
+            cleaned_response = cleaned_response.split("```json")[1].split("```")[0].strip()
+        elif cleaned_response.startswith("```"):
+            cleaned_response = cleaned_response.split("```")[1].split("```")[0].strip()
+        
+        selection_json = json.loads(cleaned_response)
         selected_agents = selection_json.get("selected_agents", [])
         if not isinstance(selected_agents, list):
             print(f"[ERROR] 'selected_agents' is not a list. Got: {type(selected_agents)}")
@@ -161,10 +168,20 @@ def agent_selector(state: GraphState, type: str) -> GraphState:
     except json.JSONDecodeError as e:
         print(f"[ERROR] Failed to parse agent selection JSON: {e}")
         print(f"Response was: {selection_response[:200]}...")
-        selected_agents = []
+        # Fallback: select first 2 available agents
+        print(f"[FALLBACK] Using default agent selection")
+        selected_agents = [
+            {"role": available_agents[0]["role"], "reason": "Default selection due to parsing error"},
+            {"role": available_agents[1]["role"], "reason": "Default selection due to parsing error"}
+        ] if len(available_agents) >= 2 else available_agents[:1]
     except Exception as e:
         print(f"[ERROR] Unexpected error parsing agent selection: {e}")
-        selected_agents = []
+        # Fallback: select first 2 available agents
+        print(f"[FALLBACK] Using default agent selection")
+        selected_agents = [
+            {"role": available_agents[0]["role"], "reason": "Default selection due to error"},
+            {"role": available_agents[1]["role"], "reason": "Default selection due to error"}
+        ] if len(available_agents) >= 2 else available_agents[:1]
 
     if type == "support":
         state["selected_support_agents"] = selected_agents
