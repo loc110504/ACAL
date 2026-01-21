@@ -131,6 +131,12 @@ def _call_gemini(prompt: str, temperature: float = 0.3, max_tokens: int = 1024, 
             return cleaned.strip()
             
         except Exception as e:
+            error_msg = str(e)
+            # Check for quota/rate limit errors
+            if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg or "quota" in error_msg.lower():
+                print(f"⚠️ Gemini quota exceeded. Switching to GPT fallback...")
+                return _call_gpt(prompt, temperature, max_tokens, retries)
+            
             print(f"Gemini Error (attempt {attempt+1}/{retries}): {e}")
             if attempt < retries - 1:
                 time.sleep(2 ** attempt)
