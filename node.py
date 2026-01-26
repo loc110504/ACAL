@@ -5,7 +5,7 @@ import json
 import random
 from qbaf_scorer import apply_qbaf_scoring
 from legal_agents import LEGAL_AGENTS
-from test import RAGModule
+from RAG import RAGModule
 
 def rag_retrieval(state: GraphState) -> GraphState:
     print("[STEP] rag_retrieval: Starting document retrieval for task:", state.get('task_name'))
@@ -269,7 +269,7 @@ Evidence: [Another supporting argument if applicable]
         agent_role = agent_info.get("role", "")
         agent_name = agent_info.get("name", "")
         attack_prompt = f"""
-As a legal expert ({agent_role}), provide 3-5 arguments AGAINST the following legal claim.
+As a legal expert ({agent_role}), provide 2-3 arguments AGAINST the following legal claim.
 
 CASE CONTEXT:
 {state.get("task_info", "")}

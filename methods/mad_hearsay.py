@@ -3,18 +3,24 @@ Multi-Agent Debate with RAG-enhanced Legal Inference
 Adapted from original Multiagent Debate code
 """
 
+
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import pandas as pd
 import random
 import json
-from methods.rag import RAGModule
-from api_call import llama_generate, gpt_generate, phi4_generate, gemini_generate
+# from methods.rag import RAGModule
+from RAG import RAGModule
+from api_call import gemini_generate
 
 # ---------------- CONFIG ----------------
 AGENTS = 3
 ROUNDS = 2
 RAG_TOP_K = 3
-COLLECTION_NAME = "legal_hearsay_docs"
-
+# COLLECTION_NAME = "legal_hearsay_docs"
+COLLECTION_NAME = "phq8_medical_docs"
 # ---------------- INIT RAG ----------------
 rag = RAGModule(persist_directory="./chroma_db")
 vectorstore = rag.load_collection(collection_name=COLLECTION_NAME)

@@ -116,7 +116,7 @@ def _call_gemini(prompt: str, temperature: float = 0.3, max_tokens: int = 1024, 
                 model="gemini-2.5-flash",
                 config=types.GenerateContentConfig(
                     temperature=temperature,
-                    max_output_tokens= max(max_tokens, 4096),
+                    max_output_tokens= max(max_tokens, 2048),
                     thinking_config=types.ThinkingConfig(
                         thinking_budget=0  # Disabled thinking
                     )

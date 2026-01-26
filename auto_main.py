@@ -56,7 +56,7 @@ class TestFullLegalWorkflow(unittest.TestCase):
         Run full workflow for one sample and return serializable result
         """
         state = {
-            "task_name": "learned hands courts",
+            "task_name": "hearsay",
             "task_info": task_info,
             "enable_streaming": False
         }

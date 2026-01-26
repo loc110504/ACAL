@@ -6,9 +6,9 @@ import argparse
 # Task configurations
 TASK_CONFIGS = {
     "hearsay": {
-        "json_path": "workflow_results_20260113_002949.json",
+        "json_path": "gemini_25flash_hearsay.json",
         "golden_tsv_path": "data/hearsay/test.tsv",
-        "output_tsv_path": "workflow_results_20260113_002949.tsv",
+        "output_tsv_path": "gemini_25flash_hearsay.tsv",
         "has_slice": True  # Hearsay data has 'slice' column
     },
     "learned_hands_courts": {
