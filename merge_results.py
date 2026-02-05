@@ -46,7 +46,12 @@ def merge_workflow_results(
     keep_successful_only: bool = False
 ) -> None:
     """
-    Merge multiple workflow results files.
+    Merge multiple workflow results files based on sample_index.
+    
+    PRIMARY KEY: sample_index
+    - Each result MUST have a unique sample_index
+    - Duplicates are resolved by timestamp or success status
+    - Final output is sorted by sample_index
     
     Args:
         input_files: List of input JSON file paths
@@ -61,14 +66,17 @@ def merge_workflow_results(
     
     print(f"\n{'='*60}")
     print(f"MERGING {len(input_files)} WORKFLOW RESULT FILES")
+    print(f"PRIMARY KEY: sample_index")
     print(f"{'='*60}\n")
     
     # Dictionary to store results: sample_index -> (result, timestamp, filename)
+    # The sample_index is the UNIQUE IDENTIFIER for merging
     merged_results = {}
     
     total_loaded = 0
     total_errors = 0
     total_success = 0
+    invalid_samples = 0
     
     for filepath, timestamp in files_with_timestamps:
         print(f"📂 Loading: {filepath.name}")
@@ -83,11 +91,24 @@ def merge_workflow_results(
         file_duplicates = 0
         
         for result in results:
+            # Validate sample_index exists and is valid
             if "sample_index" not in result:
                 print(f"   ⚠️  Warning: Result without sample_index found, skipping")
+                invalid_samples += 1
                 continue
             
             sample_idx = result["sample_index"]
+            
+            # Validate sample_index is an integer
+            if not isinstance(sample_idx, int):
+                try:
+                    sample_idx = int(sample_idx)
+                    result["sample_index"] = sample_idx  # Normalize to int
+                except (ValueError, TypeError):
+                    print(f"   ⚠️  Warning: Invalid sample_index '{sample_idx}', skipping")
+                    invalid_samples += 1
+                    continue
+            
             has_error = "error" in result
             
             if has_error:
@@ -99,20 +120,23 @@ def merge_workflow_results(
             if keep_successful_only and has_error:
                 continue
             
-            # Check if we already have this sample
+            # Check if we already have this sample_index
             if sample_idx in merged_results:
                 file_duplicates += 1
                 existing_result, existing_ts, existing_file = merged_results[sample_idx]
                 
-                # Keep latest if requested, or replace error with success
+                # Duplicate resolution strategy
                 if keep_latest:
+                    # Keep the most recent version based on timestamp
                     if timestamp > existing_ts:
                         merged_results[sample_idx] = (result, timestamp, filepath.name)
+                        print(f"   🔄 Duplicate sample_index {sample_idx}: keeping newer version from {filepath.name}")
                 else:
-                    # Keep success over error
+                    # Keep success over error regardless of timestamp
                     existing_has_error = "error" in existing_result
                     if existing_has_error and not has_error:
                         merged_results[sample_idx] = (result, timestamp, filepath.name)
+                        print(f"   🔄 Duplicate sample_index {sample_idx}: replacing error with success")
             else:
                 merged_results[sample_idx] = (result, timestamp, filepath.name)
         
@@ -122,25 +146,36 @@ def merge_workflow_results(
         
         print(f"   ✅ Success: {file_success} | ❌ Errors: {file_errors} | 🔄 Duplicates: {file_duplicates}\n")
     
-    # Extract just the results (without timestamp and filename)
+    # Extract results sorted by sample_index (PRIMARY KEY)
     final_results = [merged_results[idx][0] for idx in sorted(merged_results.keys())]
     
     # Count final statistics
     final_success = sum(1 for r in final_results if "error" not in r)
     final_errors = sum(1 for r in final_results if "error" in r)
     
+    # Get sample_index range
+    sample_indices = sorted(merged_results.keys())
+    min_idx = min(sample_indices) if sample_indices else 0
+    max_idx = max(sample_indices) if sample_indices else 0
+    missing_indices = set(range(min_idx, max_idx + 1)) - set(sample_indices)
+    
     # Save merged results
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(final_results, f, indent=2, ensure_ascii=False)
     
     print(f"{'='*60}")
-    print(f"MERGE SUMMARY")
+    print(f"MERGE SUMMARY (by sample_index)")
     print(f"{'='*60}")
     print(f"📊 Total results loaded:    {total_loaded}")
     print(f"📊 Unique samples merged:   {len(final_results)}")
+    print(f"📊 Sample index range:      {min_idx} to {max_idx}")
+    if missing_indices:
+        print(f"⚠️  Missing indices:        {len(missing_indices)} gaps (e.g., {sorted(list(missing_indices))[:5]}...)")
     print(f"✅ Successful samples:      {final_success}")
     print(f"❌ Failed samples:          {final_errors}")
-    print(f"🔄 Duplicates resolved:     {total_loaded - len(final_results)}")
+    if invalid_samples > 0:
+        print(f"⚠️  Invalid samples:        {invalid_samples} (missing/invalid sample_index)")
+    print(f"🔄 Duplicates resolved:     {total_loaded - len(final_results) - invalid_samples}")
     print(f"\n💾 Merged results saved to: {output_file}")
     print(f"{'='*60}\n")
 

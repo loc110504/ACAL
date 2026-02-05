@@ -156,11 +156,106 @@ Return ONLY valid JSON.
                 reasoning="Fallback: Same option but different argument types"
             )
     
+    def analyze_batch_relations(
+        self,
+        pairs: List[Dict],
+        task_context: str = ""
+    ) -> List[Dict]:
+        """
+        Analyze multiple argument pairs in a single LLM call (batch mode).
+        
+        Args:
+            pairs: List of dicts with keys: pair_id, arg1_content, arg1_option, arg1_type, 
+                   arg2_content, arg2_option, arg2_type
+            task_context: Context about the legal task
+        
+        Returns:
+            List of dicts with pair_id, relation_type, confidence, reasoning
+        """
+        if not pairs:
+            return []
+        
+        # Build the pairs description
+        pairs_text = ""
+        for i, pair in enumerate(pairs):
+            pairs_text += f"""
+--- PAIR {pair['pair_id']} ---
+Argument A (Option: {pair['arg1_option']}, Type: {pair['arg1_type']}):
+"{pair['arg1_content']}"
+
+Argument B (Option: {pair['arg2_option']}, Type: {pair['arg2_type']}):
+"{pair['arg2_content']}"
+"""
+        
+        prompt = f"""You are an expert in legal argumentation and natural language inference.
+
+Task: Analyze the semantic relationships between multiple pairs of legal arguments.
+
+Context: {task_context if task_context else "Legal reasoning analysis"}
+
+{pairs_text}
+
+For EACH pair, determine the relationship from Argument A to Argument B:
+
+**ATTACK**: Argument A contradicts, refutes, or undermines Argument B
+- Direct logical contradiction
+- One argument refutes the premise/conclusion of the other
+
+**SUPPORT**: Argument A reinforces, strengthens, or provides evidence for Argument B
+- One argument provides evidence for the other
+- Arguments build on same reasoning chain
+
+**NEUTRAL**: Arguments are independent, address different aspects, or have no direct logical connection
+- Different legal principles with no semantic overlap
+- No logical dependency between them
+
+IMPORTANT RULES:
+1. Analyze SEMANTIC CONTENT, not just the options they support
+2. Two arguments supporting opposite options MAY be neutral if they address different aspects
+3. Focus on LOGICAL relationships
+
+Provide your analysis as a JSON array with one object per pair:
+[
+    {{
+        "pair_id": "pair_0_1",
+        "relation_type": "attack" | "support" | "neutral",
+        "confidence": 0.0-1.0,
+        "reasoning": "Brief explanation"
+    }},
+    ...
+]
+
+Return ONLY the valid JSON array, no other text.
+"""
+        
+        try:
+            response = call_llm(prompt, temperature=0.2, max_tokens=4096)
+            
+            # Clean response - remove markdown code blocks if present
+            response = response.strip()
+            if response.startswith("```json"):
+                response = response.split("```json")[1].split("```")[0].strip()
+            elif response.startswith("```"):
+                response = response.split("```")[1].split("```")[0].strip()
+            
+            results = json.loads(response)
+            
+            if isinstance(results, list):
+                return results
+            else:
+                print(f"[Warning] Batch response is not a list, falling back to individual analysis")
+                return []
+                
+        except Exception as e:
+            print(f"[Warning] Batch analysis failed: {e}")
+            return []
+    
     def analyze_all_relations(
         self, 
         arguments: List,
         task_context: str = "",
-        use_semantic: bool = True
+        use_semantic: bool = True,
+        batch_size: int = 10
     ) -> Dict[Tuple[str, str], ArgumentRelation]:
         """
         Analyze relations between all pairs of arguments.
@@ -169,6 +264,7 @@ Return ONLY valid JSON.
             arguments: List of Argument objects from state
             task_context: Context about the legal task
             use_semantic: If True, use LLM-based semantic analysis; if False, use heuristics only
+            batch_size: Number of pairs to analyze in each LLM call (default: 10)
         
         Returns:
             Dictionary mapping (arg_i_id, arg_j_id) to ArgumentRelation
@@ -177,48 +273,107 @@ Return ONLY valid JSON.
         # Only analyze each pair once (i < j), not both directions
         # This cuts API calls in half: n*(n-1)/2 instead of n*(n-1)
         total_pairs = len(arguments) * (len(arguments) - 1) // 2
-        processed = 0
         
         print(f"[Semantic Analysis] Analyzing {total_pairs} argument pairs...")
-        print(f"[Semantic Analysis] Mode: {'LLM-based semantic' if use_semantic else 'Heuristic only'}")
+        print(f"[Semantic Analysis] Mode: {'LLM-based semantic (BATCH)' if use_semantic else 'Heuristic only'}")
         
-        for i, arg_i in enumerate(arguments):
-            for j, arg_j in enumerate(arguments):
-                if i >= j:  # Changed from i == j to i >= j (only analyze i < j)
-                    continue
+        if use_semantic and total_pairs > 0:
+            # BATCH MODE: Collect all pairs first, then process in batches
+            all_pairs = []
+            pair_info = []  # Store (i, j) indices for mapping results back
+            
+            for i, arg_i in enumerate(arguments):
+                for j, arg_j in enumerate(arguments):
+                    if i >= j:
+                        continue
+                    
+                    pair_id = f"pair_{i}_{j}"
+                    all_pairs.append({
+                        'pair_id': pair_id,
+                        'arg1_content': arg_i.content,
+                        'arg1_option': arg_i.parent_option,
+                        'arg1_type': arg_i.argument_type,
+                        'arg2_content': arg_j.content,
+                        'arg2_option': arg_j.parent_option,
+                        'arg2_type': arg_j.argument_type
+                    })
+                    pair_info.append((i, j, arg_i, arg_j))
+            
+            # Process in batches
+            num_batches = (len(all_pairs) + batch_size - 1) // batch_size
+            print(f"[Semantic Analysis] Processing {num_batches} batches (batch_size={batch_size})")
+            
+            processed = 0
+            for batch_idx in range(num_batches):
+                start_idx = batch_idx * batch_size
+                end_idx = min(start_idx + batch_size, len(all_pairs))
+                batch_pairs = all_pairs[start_idx:end_idx]
+                batch_pair_info = pair_info[start_idx:end_idx]
                 
-                arg_i_id = f"arg_{i}"
-                arg_j_id = f"arg_{j}"
+                print(f"[Semantic Analysis] Batch {batch_idx + 1}/{num_batches}: pairs {start_idx}-{end_idx-1}")
                 
-                if use_semantic:
-                    # Use LLM-based semantic analysis
-                    relation = self.analyze_pairwise_relation(
-                        arg1_content=arg_i.content,
-                        arg1_option=arg_i.parent_option,
-                        arg1_type=arg_i.argument_type,
-                        arg2_content=arg_j.content,
-                        arg2_option=arg_j.parent_option,
-                        arg2_type=arg_j.argument_type,
-                        task_context=task_context
-                    )
-                else:
-                    # Use simple heuristic
+                # Call batch analysis
+                batch_results = self.analyze_batch_relations(batch_pairs, task_context)
+                
+                # Map results back to pairs
+                result_map = {r['pair_id']: r for r in batch_results}
+                
+                for idx, (i, j, arg_i, arg_j) in enumerate(batch_pair_info):
+                    pair_id = f"pair_{i}_{j}"
+                    arg_i_id = f"arg_{i}"
+                    arg_j_id = f"arg_{j}"
+                    
+                    if pair_id in result_map:
+                        result = result_map[pair_id]
+                        relation = ArgumentRelation(
+                            source_id=arg_i_id,
+                            target_id=arg_j_id,
+                            relation_type=result.get("relation_type", "neutral"),
+                            confidence=float(result.get("confidence", 0.5)),
+                            reasoning=result.get("reasoning", "")
+                        )
+                    else:
+                        # Fallback for missing results
+                        print(f"[Warning] No result for {pair_id}, using heuristic fallback")
+                        relation = self._fallback_heuristic(
+                            arg_i.parent_option,
+                            arg_i.argument_type,
+                            arg_j.parent_option,
+                            arg_j.argument_type
+                        )
+                        relation.source_id = arg_i_id
+                        relation.target_id = arg_j_id
+                    
+                    relations[(arg_i_id, arg_j_id)] = relation
+                    processed += 1
+                
+                print(f"[Semantic Analysis] Progress: {processed}/{total_pairs} pairs analyzed")
+        
+        else:
+            # HEURISTIC MODE: Process one by one (fast, no LLM calls)
+            processed = 0
+            for i, arg_i in enumerate(arguments):
+                for j, arg_j in enumerate(arguments):
+                    if i >= j:
+                        continue
+                    
+                    arg_i_id = f"arg_{i}"
+                    arg_j_id = f"arg_{j}"
+                    
                     relation = self._fallback_heuristic(
                         arg_i.parent_option,
                         arg_i.argument_type,
                         arg_j.parent_option,
                         arg_j.argument_type
                     )
-                
-                # Update IDs
-                relation.source_id = arg_i_id
-                relation.target_id = arg_j_id
-                
-                relations[(arg_i_id, arg_j_id)] = relation
-                
-                processed += 1
-                if processed % 5 == 0 or processed == total_pairs:
-                    print(f"[Semantic Analysis] Progress: {processed}/{total_pairs} pairs analyzed")
+                    relation.source_id = arg_i_id
+                    relation.target_id = arg_j_id
+                    
+                    relations[(arg_i_id, arg_j_id)] = relation
+                    processed += 1
+            
+            if processed > 0:
+                print(f"[Semantic Analysis] Progress: {processed}/{total_pairs} pairs analyzed")
         
         # Print summary
         attack_count = sum(1 for r in relations.values() if r.relation_type == "attack")

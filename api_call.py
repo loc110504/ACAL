@@ -7,6 +7,7 @@ import time
 import random
 import ast
 import re
+import threading
 from typing import Literal
 from pydantic import BaseModel, Field, ValidationError
 # from env_config import (
@@ -14,6 +15,31 @@ from pydantic import BaseModel, Field, ValidationError
 # )
 from google import genai
 from google.genai import types
+
+
+# ============ Google API Key Rotation ============
+_google_api_key_index = 0
+_google_api_key_lock = threading.Lock()
+
+def _get_next_google_api_key() -> str:
+    """Get the next Google API key in rotation to avoid rate limits"""
+    global _google_api_key_index
+    
+    keys = [
+        os.getenv("GOOGLE_API_KEY"),
+        os.getenv("GOOGLE_API_KEY_2")
+    ]
+    # Filter out None values
+    keys = [k for k in keys if k]
+    
+    if not keys:
+        raise ValueError("Missing GOOGLE_API_KEY or GOOGLE_API_KEY_2 in environment")
+    
+    with _google_api_key_lock:
+        key = keys[_google_api_key_index % len(keys)]
+        _google_api_key_index += 1
+    
+    return key
 
 
 # ==== Pydantic model định nghĩa cấu trúc output ====
@@ -279,7 +305,7 @@ def gemini_generate(
     retries: int = 3,
 ) -> Optional[GeminiAnswer]:
 
-    client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+    client = genai.Client(api_key=_get_next_google_api_key())
 
     for attempt in range(retries):
         try:

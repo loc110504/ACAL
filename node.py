@@ -37,12 +37,12 @@ def rag_retrieval(state: GraphState) -> GraphState:
         """
     if state.get("enable_streaming", False):
         queries_text = ""
-        for chunk in call_llm_stream(prompt, temperature=0.7, max_tokens=1024):
+        for chunk in call_llm_stream(prompt, temperature=0.3, max_tokens=1024):
             queries_text += chunk
             state["rag_progress"] = f"Generating search queries:\n{queries_text}"
         queries = queries_text.strip().split("\n")
     else:
-        queries = call_llm(prompt, temperature=0.7, max_tokens=1024).strip().split("\n")
+        queries = call_llm(prompt, temperature=0.3, max_tokens=1024).strip().split("\n")
 
     state["search_queries"] = queries
 
@@ -149,7 +149,7 @@ def agent_selector(state: GraphState, type: str) -> GraphState:
     Provide only the JSON object in your response. Do not include any explanation outside the JSON.
     """
 
-    selection_response = call_llm(selection_prompt, temperature=0.7, max_tokens=2048)
+    selection_response = call_llm(selection_prompt, temperature=0.3, max_tokens=2048)
     
     # Parse JSON response and extract selected_agents list
     try:
@@ -242,7 +242,7 @@ OUTPUT FORMAT:
 Evidence: [Your concise legal argument supporting the claim]
 Evidence: [Another supporting argument if applicable]
 """
-        support_response = call_llm(support_prompt, temperature=0.7, max_tokens=512)
+        support_response = call_llm(support_prompt, temperature=0.3, max_tokens=512)
         for line in support_response.split("\n"):
             if line.strip().startswith("Evidence:") or line.strip().startswith("Support:"):
                 arg_content = line.replace("Evidence:", "").replace("Support:", "").strip()
@@ -299,7 +299,7 @@ OUTPUT FORMAT:
 Counter: [Your concise legal argument against the claim]
 Counter: [Another counter-argument if applicable]
 """
-        attack_response = call_llm(attack_prompt, temperature=0.7, max_tokens=512)
+        attack_response = call_llm(attack_prompt, temperature=0.3, max_tokens=512)
         for line in attack_response.split("\n"):
             if line.strip().startswith("Counter:") or line.strip().startswith("Challenge:") or line.strip().startswith("Attack:"):
                 arg_content = line.replace("Counter:", "").replace("Challenge:", "").replace("Attack:", "").strip()
@@ -543,11 +543,11 @@ Brief explanation."""
 
         if state.get("enable_streaming", False):
             initial_response = ""
-            for chunk in call_llm_stream(initial_prompt, temperature=0.7, max_tokens=1024):
+            for chunk in call_llm_stream(initial_prompt, temperature=0.3, max_tokens=1024):
                 initial_response += chunk
                 state["current_validation_stream"] = initial_response
         else:
-            initial_response = call_llm(initial_prompt, temperature=0.7, max_tokens=1024)
+            initial_response = call_llm(initial_prompt, temperature=0.3, max_tokens=1024)
         initial_validity_score = 0.0
         try:
             if "Validity Score:" in initial_response:
@@ -568,10 +568,10 @@ Brief explanation."""
                 Create ONE focused search query that would help validate or refute this argument."""
             if state.get("enable_streaming", False):
                 search_query = ""
-                for chunk in call_llm_stream(search_query_prompt, temperature=0.7, max_tokens=1024):
+                for chunk in call_llm_stream(search_query_prompt, temperature=0.3, max_tokens=1024):
                     search_query += chunk
             else:
-                search_query = call_llm(search_query_prompt, temperature=0.7, max_tokens=1024).strip()
+                search_query = call_llm(search_query_prompt, temperature=0.3, max_tokens=1024).strip()
 
                 additional_docs = rag.query_rag(query=search_query, top_k=3, collection_name="legal_docs")
             doc_refs_used = []
@@ -601,7 +601,7 @@ Brief explanation."""
                 Provide an updated validity score between 0 and 1.
                 Response format: "Updated Validity Score: X.XX"
                 Explain how the evidence influenced your assessment."""
-            revalidation_response = call_llm(revalidation_prompt, temperature=0.7, max_tokens=512)
+            revalidation_response = call_llm(revalidation_prompt, temperature=0.3, max_tokens=512)
             updated_validity_score = initial_validity_score
             try:
                 if "Updated Validity Score:" in revalidation_response:
@@ -657,7 +657,7 @@ Brief explanation."""
     print("\n[QBAF] Applying QBAF-based argument scoring...")
     
     # Semantics based on task - df_quad is most sophisticated
-    qbaf_semantics = "df_quad"
+    qbaf_semantics = "quadratic_energy"
     # Alternative options: "weighted_sum", "weighted_product", "euler_based"
     
     # Relation identification method
@@ -867,7 +867,10 @@ def final_answer_generator(state: GraphState) -> GraphState:
     judge_reasoning = ""
     judge_used = False
     
-    if BORDERLINE_LOW <= claim_score <= BORDERLINE_HIGH:
+    # Flag to enable/disable final judge (default: True)
+    enable_final_judge = state.get("enable_final_judge", True)
+    
+    if enable_final_judge and BORDERLINE_LOW <= claim_score <= BORDERLINE_HIGH:
         print(f"\n[FINAL JUDGE] Borderline score detected: {claim_score:.3f}")
         print(f"[FINAL JUDGE] Score is in uncertain zone [{BORDERLINE_LOW}, {BORDERLINE_HIGH}]")
         print(f"[FINAL JUDGE] Invoking independent judicial review...")
@@ -1081,12 +1084,12 @@ You are a professional legal reasoning assistant.
 
     if state.get("enable_streaming", False):
         response_chunks = []
-        for chunk in call_llm_stream(prompt, temperature=0.7, max_tokens=1024):
+        for chunk in call_llm_stream(prompt, temperature=0.3, max_tokens=1024):
             response_chunks.append(chunk)
             state["final_answer_stream"] = "".join(response_chunks)
         response = "".join(response_chunks)
     else:
-        response = call_llm(prompt, temperature=0.7, max_tokens=1024)
+        response = call_llm(prompt, temperature=0.3, max_tokens=1024)
 
     # Extract cited document references
     cited_refs = re.findall(r"\[REF-(\d+)\]", response)

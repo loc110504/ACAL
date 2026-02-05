@@ -7,11 +7,37 @@ from pydantic import BaseModel, Field, ValidationError
 from openai import OpenAI, RateLimitError
 import time
 import random
+import threading
 
 load_dotenv(override=True)
 
 from google import genai
 from google.genai import types
+
+
+# ============ Google API Key Rotation ============
+_google_api_key_index = 0
+_google_api_key_lock = threading.Lock()
+
+def _get_next_google_api_key() -> str:
+    """Get the next Google API key in rotation to avoid rate limits"""
+    global _google_api_key_index
+    
+    keys = [
+        os.getenv("GOOGLE_API_KEY"),
+        os.getenv("GOOGLE_API_KEY_2")
+    ]
+    # Filter out None values
+    keys = [k for k in keys if k]
+    
+    if not keys:
+        raise ValueError("Missing GOOGLE_API_KEY or GOOGLE_API_KEY_2 in environment")
+    
+    with _google_api_key_lock:
+        key = keys[_google_api_key_index % len(keys)]
+        _google_api_key_index += 1
+    
+    return key
 
 
 # ============ Pydantic Models ============
@@ -103,17 +129,14 @@ def _call_llama(prompt: str, temperature: float = 0.3, max_tokens: int = 1024, r
 
 
 def _call_gemini(prompt: str, temperature: float = 0.3, max_tokens: int = 1024, retries: int = 3) -> str:
-    """Call Google Gemini"""
-    api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        raise ValueError("Missing GEMINI_API_KEY or GOOGLE_API_KEY in environment")
-    
+    """Call Google Gemini with API key rotation"""
+    api_key = _get_next_google_api_key()
     client = genai.Client(api_key=api_key)
     
     for attempt in range(retries):
         try:
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-2.5-flash-lite",
                 config=types.GenerateContentConfig(
                     temperature=temperature,
                     max_output_tokens= max(max_tokens, 2048),
@@ -145,9 +168,9 @@ def _call_gemini(prompt: str, temperature: float = 0.3, max_tokens: int = 1024, 
 
 
 def _call_gemini_stream(prompt: str, temperature: float = 0.3, max_tokens: int = 1024) -> Generator[str, None, None]:
-    """Stream responses from Gemini model"""
+    """Stream responses from Gemini model with API key rotation"""
     try:
-        api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        api_key = _get_next_google_api_key()
         client = genai.Client(api_key=api_key)
         
         response_stream = client.models.generate_content_stream(

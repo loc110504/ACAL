@@ -41,9 +41,10 @@ class QBAFScorer:
     - weighted_product: base * Π(1 + support) / Π(1 + attack)
     - euler_based: Uses Euler-based aggregation function
     - df_quad: DF-QuAD semantics (Discontinuity-Free Quantitative Argumentation Debate)
+    - quadratic_energy: QE semantics - minimizes quadratic energy function (Potyka, 2018)
     """
     
-    def __init__(self, semantics: str = "df_quad", convergence_threshold: float = 0.001, max_iterations: int = 100):
+    def __init__(self, semantics: str = "quadratic_energy", convergence_threshold: float = 0.001, max_iterations: int = 100):
         """
         Args:
             semantics: Type of gradual semantics to use
@@ -493,6 +494,8 @@ Only output the JSON, no other text."""
             return self._compute_euler_based()
         elif self.semantics == "df_quad":
             return self._compute_df_quad()
+        elif self.semantics == "quadratic_energy":
+            return self._compute_quadratic_energy()
         else:
             raise ValueError(f"Unknown semantics: {self.semantics}")
     
@@ -698,6 +701,95 @@ Only output the JSON, no other text."""
         
         return scores
     
+    def _compute_quadratic_energy(self) -> Dict[str, float]:
+        """
+        Quadratic Energy (QE) semantics based on Potyka (2018).
+        
+        Minimizes a quadratic energy function that balances:
+        1. Staying close to the base score (intrinsic strength)
+        2. Being influenced by supporters (increase strength)
+        3. Being influenced by attackers (decrease strength)
+        
+        The energy function is:
+        E(σ) = Σ_a [ (σ(a) - τ(a))² + Σ_{b attacks a} σ(a) * σ(b) 
+                                     - Σ_{c supports a} σ(a) * σ(c) ]
+        
+        Taking the gradient with respect to σ(a):
+        ∂E/∂σ(a) = 2(σ(a) - τ(a)) + Σ_{b attacks a} σ(b) - Σ_{c supports a} σ(c)
+        
+        The update rule uses gradient descent with learning rate α:
+        σ'(a) = σ(a) - α * ∂E/∂σ(a)
+        
+        Simplified (rearranged):
+        σ'(a) = (1 - 2α) * σ(a) + 2α * τ(a) + α * (Σ supporters - Σ attackers)
+        
+        With α = 0.5, this simplifies to:
+        σ'(a) = τ(a) + 0.5 * (Σ_{c supports a} σ(c) - Σ_{b attacks a} σ(b))
+        
+        We use a smaller learning rate to prevent oscillation and extreme values.
+        The result is clamped to [0, 1] after each iteration.
+        """
+        # Learning rate for gradient descent (smaller = more stable, less extreme)
+        alpha = 0.1
+        
+        # Initialize with base scores
+        scores = {arg_id: arg.base_score for arg_id, arg in self.arguments.items()}
+        
+        iteration = 0
+        while iteration < self.max_iterations:
+            new_scores = {}
+            max_change = 0
+            
+            for arg_id, arg in self.arguments.items():
+                base = float(arg.base_score)
+                current = scores[arg_id]
+                
+                # Calculate support influence: sum of supporter scores
+                support_sum = sum(scores[sup_id] for sup_id in arg.supported_by)
+                
+                # Calculate attack influence: sum of attacker scores
+                attack_sum = sum(scores[att_id] for att_id in arg.attacked_by)
+                
+                # Normalize by count to prevent extreme values with many relations
+                num_supporters = len(arg.supported_by)
+                num_attackers = len(arg.attacked_by)
+                
+                # Average influence (normalized)
+                support_avg = support_sum / num_supporters if num_supporters > 0 else 0
+                attack_avg = attack_sum / num_attackers if num_attackers > 0 else 0
+                
+                # Gradient: ∂E/∂σ(a) = 2(σ(a) - τ(a)) + attacks - supports
+                gradient = 2 * (current - base) + attack_avg - support_avg
+                
+                # Gradient descent update: σ' = σ - α * gradient
+                new_score = current - alpha * gradient
+                
+                # Clamp to [0, 1]
+                new_score = max(0.0, min(1.0, new_score))
+                
+                new_scores[arg_id] = new_score
+                max_change = max(max_change, abs(new_score - scores[arg_id]))
+            
+            scores = new_scores
+            iteration += 1
+            
+            if max_change < self.convergence_threshold:
+                print(f"[QBAF] Quadratic Energy converged after {iteration} iterations")
+                break
+        
+        if iteration >= self.max_iterations:
+            print(f"[QBAF] Quadratic Energy reached max iterations ({self.max_iterations})")
+        
+        # Store impacts and final scores
+        for arg_id, arg in self.arguments.items():
+            if arg.supported_by:
+                arg.support_impact = sum(scores[sup_id] for sup_id in arg.supported_by) / len(arg.supported_by)
+            if arg.attacked_by:
+                arg.attack_impact = sum(scores[att_id] for att_id in arg.attacked_by) / len(arg.attacked_by)
+            arg.final_score = scores[arg_id]
+        
+        return scores
+
     def get_option_scores(self) -> Dict[str, float]:
         """
         Get the decision node score and compute argument statistics.
@@ -846,10 +938,133 @@ Only output the JSON, no other text."""
         
         return {"nodes": nodes, "edges": edges}
 
+    def export_full_graph(self, claim: str = "", task_context: str = "", stage: str = "final") -> Dict:
+        """
+        Export complete graph state for saving/loading.
+        
+        This format preserves ALL information needed to reconstruct the graph:
+        - Full argument content (not truncated)
+        - All scores (base, final, support/attack impact)
+        - All relations (supports, attacks, supported_by, attacked_by)
+        - Metadata (claim, task context, semantics, stage)
+        
+        Args:
+            claim: The claim text being evaluated
+            task_context: Context/description of the task
+            stage: "pre_calculation" or "final" to indicate graph state
+        
+        Returns:
+            Dict with complete graph structure
+        """
+        arguments = []
+        for arg_id, arg in self.arguments.items():
+            arguments.append({
+                "id": arg_id,
+                "content": arg.content,  # Full content, not truncated
+                "type": arg.argument_type,
+                "base_score": arg.base_score,
+                "final_score": arg.final_score,
+                "support_impact": arg.support_impact,
+                "attack_impact": arg.attack_impact,
+                "parent_option": arg.parent_option,
+                "agent_role": arg.agent_role,
+                "agent_name": arg.agent_name,
+                "is_decision_node": arg.is_decision_node,
+                # Relations
+                "supports": list(arg.supports),
+                "attacks": list(arg.attacks),
+                "supported_by": list(arg.supported_by),
+                "attacked_by": list(arg.attacked_by)
+            })
+        
+        return {
+            "version": "1.0",
+            "stage": stage,  # "pre_calculation" or "final"
+            "claim": claim,
+            "task_context": task_context,
+            "semantics": self.semantics,
+            "arguments": arguments,
+            "metadata": {
+                "total_nodes": len(self.arguments),
+                "total_support_relations": sum(len(arg.supports) for arg in self.arguments.values()),
+                "total_attack_relations": sum(len(arg.attacks) for arg in self.arguments.values())
+            }
+        }
+
+    def load_from_graph(self, graph_data: Dict) -> None:
+        """
+        Load graph state from exported format.
+        
+        Args:
+            graph_data: Dict from export_full_graph
+        """
+        self.arguments = {}
+        self.semantics = graph_data.get("semantics", "df_quad")
+        
+        for arg_data in graph_data.get("arguments", []):
+            arg = QBAFArgument(
+                id=arg_data["id"],
+                content=arg_data["content"],
+                base_score=arg_data.get("base_score", 0.5),
+                parent_option=arg_data.get("parent_option"),
+                argument_type=arg_data.get("type", "support"),
+                agent_role=arg_data.get("agent_role"),
+                agent_name=arg_data.get("agent_name"),
+                is_decision_node=arg_data.get("is_decision_node", False)
+            )
+            # Restore computed scores if available
+            arg.final_score = arg_data.get("final_score", 0.0)
+            arg.support_impact = arg_data.get("support_impact", 0.0)
+            arg.attack_impact = arg_data.get("attack_impact", 0.0)
+            # Restore relations
+            arg.supports = list(arg_data.get("supports", []))
+            arg.attacks = list(arg_data.get("attacks", []))
+            arg.supported_by = list(arg_data.get("supported_by", []))
+            arg.attacked_by = list(arg_data.get("attacked_by", []))
+            
+            self.arguments[arg.id] = arg
+
+    def save_graph_to_file(self, filepath: str, claim: str = "", task_context: str = "", stage: str = "final") -> str:
+        """
+        Save graph state to a JSON file.
+        
+        Args:
+            filepath: Path to save the file (e.g., "graph_001.json")
+            claim: The claim text
+            task_context: Task context description
+            stage: "pre_calculation" or "final"
+        
+        Returns:
+            The filepath where the graph was saved
+        """
+        graph_data = self.export_full_graph(claim=claim, task_context=task_context, stage=stage)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(graph_data, f, indent=2, ensure_ascii=False)
+        print(f"[QBAF] Graph saved to {filepath} (stage: {stage})")
+        return filepath
+
+    @classmethod
+    def load_graph_from_file(cls, filepath: str) -> 'QBAFScorer':
+        """
+        Load a QBAFScorer from a saved graph file.
+        
+        Args:
+            filepath: Path to the graph JSON file
+        
+        Returns:
+            QBAFScorer instance with loaded graph
+        """
+        with open(filepath, 'r', encoding='utf-8') as f:
+            graph_data = json.load(f)
+        
+        scorer = cls(semantics=graph_data.get("semantics", "df_quad"))
+        scorer.load_from_graph(graph_data)
+        return scorer
+
 
 def apply_qbaf_scoring(
     arguments: List, 
-    semantics: str = "df_quad",
+    semantics: str = "quadratic_energy",
     use_semantic_analysis: bool = False,
     use_clash_resolution: bool = False,
     clash_trigger_threshold: float = 0.2,
@@ -857,7 +1072,9 @@ def apply_qbaf_scoring(
     case_text: str = "",
     decision_threshold: float = 0.5,
     claim: str = "The claim is true",
-    llm_provider: str = "gemini" 
+    llm_provider: str = "gemini",
+    save_pre_calc_graph: bool = True,
+    graph_output_dir: str = "graphs"
 ) -> Tuple[List, Dict, 'QBAFScorer']:
     """
     Apply standard QBAF scoring to a list of arguments.
@@ -880,6 +1097,8 @@ def apply_qbaf_scoring(
         decision_threshold: Threshold for Yes decision (default 0.5)
         claim: The central thesis being evaluated
         llm_provider: LLM provider for clash resolution ("gpt", "gemini", etc.)
+        save_pre_calc_graph: Save graph state before QBAF calculation (default: True)
+        graph_output_dir: Directory to save graph files (default: "graphs")
     
     Returns:
         Tuple of (updated_arguments, scores_dict, scorer)
@@ -908,6 +1127,29 @@ def apply_qbaf_scoring(
             task_context=task_context,
             provider=llm_provider,
             clash_trigger_threshold=clash_trigger_threshold
+        )
+    
+    # === SAVE PRE-CALCULATION GRAPH ===
+    # Save the graph state AFTER semantic relations and clash resolution
+    # but BEFORE computing final scores
+    if save_pre_calc_graph:
+        import os
+        from datetime import datetime
+        
+        # Generate filename with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        graph_filename = f"graph_{timestamp}_pre_calc.json"
+        graph_path = os.path.join(graph_output_dir, graph_filename)
+        
+        # Ensure directory exists
+        os.makedirs(graph_output_dir, exist_ok=True)
+        
+        # Save pre-calculation state
+        scorer.save_graph_to_file(
+            filepath=graph_path,
+            claim=claim,
+            task_context=task_context,
+            stage="pre_calculation"
         )
     
     # Compute scores using DF-QuAD (after clash resolution adjustments)
@@ -958,5 +1200,24 @@ def apply_qbaf_scoring(
     
     # Add decision info to scores
     scores['_decision'] = decision_info
+    
+    # === SAVE FINAL GRAPH ===
+    # Save the graph state AFTER computing final scores
+    if save_pre_calc_graph:
+        import os
+        from datetime import datetime
+        
+        # Use same timestamp as pre-calc graph
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        graph_filename = f"graph_{timestamp}_final.json"
+        graph_path = os.path.join(graph_output_dir, graph_filename)
+        
+        # Save final state
+        scorer.save_graph_to_file(
+            filepath=graph_path,
+            claim=claim,
+            task_context=task_context,
+            stage="final"
+        )
     
     return arguments, scores, scorer
