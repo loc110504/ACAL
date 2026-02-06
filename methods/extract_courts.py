@@ -3,7 +3,7 @@ import pandas as pd
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, classification_report
 
 # Load file
-df = pd.read_csv("answers/learned_hands_courts/courts_flash.tsv",  sep='\t', usecols=[0, 1, 2, 3], 
+df = pd.read_csv("answers/learned_hands_courts/courts_flash_lite.tsv",  sep='\t', usecols=[0, 1, 2, 3], 
                  names=['index', 'text', 'gold_answer', 'final_answer'],
                  skiprows=1)
 

@@ -2,6 +2,7 @@ from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 from llm_caller import call_llm
 import json
+import re
 
 
 @dataclass
@@ -175,16 +176,20 @@ Return ONLY valid JSON.
         if not pairs:
             return []
         
-        # Build the pairs description
+        # Build the pairs description with sanitized content
         pairs_text = ""
         for i, pair in enumerate(pairs):
+            # Sanitize content: escape quotes and remove problematic characters
+            arg1_content = pair['arg1_content'].replace('"', "'").replace('\n', ' ').replace('\r', ' ')[:500]
+            arg2_content = pair['arg2_content'].replace('"', "'").replace('\n', ' ').replace('\r', ' ')[:500]
+            
             pairs_text += f"""
 --- PAIR {pair['pair_id']} ---
 Argument A (Option: {pair['arg1_option']}, Type: {pair['arg1_type']}):
-"{pair['arg1_content']}"
+{arg1_content}
 
 Argument B (Option: {pair['arg2_option']}, Type: {pair['arg2_type']}):
-"{pair['arg2_content']}"
+{arg2_content}
 """
         
         prompt = f"""You are an expert in legal argumentation and natural language inference.
@@ -238,6 +243,11 @@ Return ONLY the valid JSON array, no other text.
             elif response.startswith("```"):
                 response = response.split("```")[1].split("```")[0].strip()
             
+            # Additional cleaning: try to extract JSON array if response has extra text
+            json_match = re.search(r'\[.*\]', response, re.DOTALL)
+            if json_match:
+                response = json_match.group(0)
+            
             results = json.loads(response)
             
             if isinstance(results, list):
@@ -256,7 +266,7 @@ Return ONLY the valid JSON array, no other text.
         task_context: str = "",
         use_semantic: bool = True,
         batch_size: int = 10
-    ) -> Dict[Tuple[str, str], ArgumentRelation]:
+    ) -> Tuple[Dict[Tuple[str, str], ArgumentRelation], bool]:
         """
         Analyze relations between all pairs of arguments.
         
@@ -267,9 +277,12 @@ Return ONLY the valid JSON array, no other text.
             batch_size: Number of pairs to analyze in each LLM call (default: 10)
         
         Returns:
-            Dictionary mapping (arg_i_id, arg_j_id) to ArgumentRelation
+            Tuple of:
+                - Dictionary mapping (arg_i_id, arg_j_id) to ArgumentRelation
+                - Boolean indicating if heuristic fallback was used (True = heuristic used)
         """
         relations = {}
+        used_heuristic_fallback = False
         # Only analyze each pair once (i < j), not both directions
         # This cuts API calls in half: n*(n-1)/2 instead of n*(n-1)
         total_pairs = len(arguments) * (len(arguments) - 1) // 2
@@ -334,6 +347,7 @@ Return ONLY the valid JSON array, no other text.
                         )
                     else:
                         # Fallback for missing results
+                        used_heuristic_fallback = True
                         print(f"[Warning] No result for {pair_id}, using heuristic fallback")
                         relation = self._fallback_heuristic(
                             arg_i.parent_option,
@@ -388,7 +402,10 @@ Return ONLY the valid JSON array, no other text.
         else:
             print(f"  No argument pairs to analyze (0 or 1 arguments)")
         
-        return relations
+        if used_heuristic_fallback:
+            print(f"  ⚠️ HEURISTIC FALLBACK WAS USED - some pairs could not be analyzed by LLM")
+        
+        return relations, used_heuristic_fallback
     
     def filter_relations_by_threshold(
         self, 
@@ -419,7 +436,7 @@ def analyze_argument_relations_semantic(
     use_semantic: bool = True,
     threshold_attack: float = 0.6,
     threshold_support: float = 0.6
-) -> Dict[Tuple[str, str], ArgumentRelation]:
+) -> Tuple[Dict[Tuple[str, str], ArgumentRelation], bool]:
     """
     Convenience function to analyze argument relations with semantic analysis.
     
@@ -431,14 +448,16 @@ def analyze_argument_relations_semantic(
         threshold_support: Confidence threshold for support relations
     
     Returns:
-        Dictionary of argument relations
+        Tuple of:
+            - Dictionary of argument relations
+            - Boolean indicating if heuristic fallback was used (True = some pairs used heuristic)
     """
     analyzer = SemanticRelationAnalyzer(
         threshold_attack=threshold_attack,
         threshold_support=threshold_support
     )
     
-    relations = analyzer.analyze_all_relations(
+    relations, used_heuristic = analyzer.analyze_all_relations(
         arguments=arguments,
         task_context=task_context,
         use_semantic=use_semantic
@@ -447,4 +466,4 @@ def analyze_argument_relations_semantic(
     # Filter by confidence thresholds
     relations = analyzer.filter_relations_by_threshold(relations)
     
-    return relations
+    return relations, used_heuristic

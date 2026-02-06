@@ -79,7 +79,7 @@ class QBAFScorer:
         use_semantic_analysis: bool = False,
         task_context: str = "",
         claim: str = "The claim is true"
-    ) -> None:
+    ) -> bool:
         """
         Build QBAF graph following the standard model (Rago et al. 2016).
         
@@ -149,15 +149,20 @@ class QBAFScorer:
                 self.add_attack(arg_id, claim_id)
         
         # Step 4: Infer attack/support relations between arguments
+        used_heuristic_fallback = False
         if use_semantic_analysis:
             print(f"[QBAF] Using SEMANTIC ANALYSIS for inter-argument relations...")
-            self._build_relations_semantic(arguments, task_context)
+            used_heuristic_fallback = self._build_relations_semantic(arguments, task_context)
         else:
             print(f"[QBAF] Using HEURISTIC RULES for inter-argument relations...")
             self._build_relations_heuristic()
+            used_heuristic_fallback = True  # Full heuristic mode
         
         print(f"[QBAF] Built graph with {len(self.arguments)} nodes (1 claim + {len(arguments)} arguments)")
         self._print_graph_statistics()
+        
+        # Return whether heuristic fallback was used
+        return used_heuristic_fallback
     
     def _build_relations_heuristic(self) -> None:
         """
@@ -189,7 +194,7 @@ class QBAFScorer:
                     self.add_attack(arg_i.id, arg_j.id)  # i attacks j
                     self.add_attack(arg_j.id, arg_i.id)  # j attacks i
     
-    def _build_relations_semantic(self, arguments: List, task_context: str) -> None:
+    def _build_relations_semantic(self, arguments: List, task_context: str) -> bool:
         """
         Build relations using LLM-based semantic analysis.
         SLOW but more accurate - analyzes actual argument content.
@@ -198,9 +203,12 @@ class QBAFScorer:
         - If A attacks B, we also add B attacks A
         - If A supports B, we also add B supports A
         This ensures symmetric treatment in QBAF calculations.
+        
+        Returns:
+            Boolean indicating if heuristic fallback was used for any pairs
         """
         # Analyze all relations using semantic analyzer
-        relations = analyze_argument_relations_semantic(
+        relations, used_heuristic = analyze_argument_relations_semantic(
             arguments=arguments,
             task_context=task_context,
             use_semantic=True,
@@ -217,6 +225,8 @@ class QBAFScorer:
                 self.add_support(src_id, tgt_id)  # src supports tgt
                 self.add_support(tgt_id, src_id)  # tgt supports src (bidirectional)
             # neutral relations are not added
+        
+        return used_heuristic
     
     def resolve_argument_clashes(
         self, 
@@ -1075,7 +1085,7 @@ def apply_qbaf_scoring(
     llm_provider: str = "gemini",
     save_pre_calc_graph: bool = True,
     graph_output_dir: str = "graphs"
-) -> Tuple[List, Dict, 'QBAFScorer']:
+) -> Tuple[List, Dict, 'QBAFScorer', bool]:
     """
     Apply standard QBAF scoring to a list of arguments.
     
@@ -1101,13 +1111,14 @@ def apply_qbaf_scoring(
         graph_output_dir: Directory to save graph files (default: "graphs")
     
     Returns:
-        Tuple of (updated_arguments, scores_dict, scorer)
+        Tuple of (updated_arguments, scores_dict, scorer, used_heuristic_fallback)
+        - used_heuristic_fallback: True if any pairs used heuristic instead of LLM analysis
     """
     # Create QBAF scorer
     scorer = QBAFScorer(semantics=semantics)
     
     # Build graph from arguments (standard QBAF - no option_mapping needed)
-    scorer.build_argument_graph_from_state(
+    used_heuristic_fallback = scorer.build_argument_graph_from_state(
         arguments, 
         option_mapping=None,  # No longer needed in standard QBAF
         use_semantic_analysis=use_semantic_analysis,
@@ -1220,4 +1231,4 @@ def apply_qbaf_scoring(
             stage="final"
         )
     
-    return arguments, scores, scorer
+    return arguments, scores, scorer, used_heuristic_fallback

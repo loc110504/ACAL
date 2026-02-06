@@ -676,7 +676,7 @@ Brief explanation."""
     claim = state.get("claim", "The claim is true")
     case_text = state.get("task_info", "")
     
-    validated_arguments, option_scores, qbaf_scorer = apply_qbaf_scoring(
+    validated_arguments, option_scores, qbaf_scorer, used_heuristic_fallback = apply_qbaf_scoring(
         validated_arguments, 
         semantics=qbaf_semantics,
         use_semantic_analysis=use_semantic_analysis,
@@ -691,9 +691,11 @@ Brief explanation."""
     # Store QBAF results in state for later use
     state["qbaf_option_scores"] = option_scores
     state["qbaf_graph_export"] = qbaf_scorer.export_for_visualization()
+    state["used_heuristic_fallback"] = used_heuristic_fallback  # Track if heuristic was used
     
     print(f"[QBAF] Scoring complete using {qbaf_semantics} semantics")
     print(f"[QBAF] Relation method: {'Semantic (LLM-based NLI)' if use_semantic_analysis else 'Heuristic (rule-based)'}")
+    print(f"[QBAF] Heuristic Fallback: {'⚠️ YES (some pairs used heuristic)' if used_heuristic_fallback else '✅ NO (all pairs analyzed by LLM)'}")
     print(f"[QBAF] Clash resolution: {'ENABLED (threshold=' + str(clash_trigger_threshold) + ')' if use_clash_resolution else 'DISABLED'}")
 
     return state

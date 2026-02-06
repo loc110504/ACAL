@@ -16,7 +16,7 @@ from node import (
     final_answer_generator
 )
 
-TSV_PATH = "data/hearsay/test.tsv"
+TSV_PATH = "data/learned_hands_courts/test.tsv"
 
 # Global variable to store processed indices from previous run
 PROCESSED_INDICES = set()
@@ -56,7 +56,7 @@ class TestFullLegalWorkflow(unittest.TestCase):
         Run full workflow for one sample and return serializable result
         """
         state = {
-            "task_name": "hearsay",
+            "task_name": "learned_hands_courts",
             "task_info": task_info,
             "enable_streaming": False
         }
@@ -83,6 +83,7 @@ class TestFullLegalWorkflow(unittest.TestCase):
             "final_answer": state.get("final_answer", {}),
             "options": state.get("options", []),
             "retrieved_documents_count": len(state.get("retrieved_documents", [])),
+            "used_heuristic_fallback": state.get("used_heuristic_fallback", False),  # Track heuristic usage
             "arguments": [],
             "validated_arguments": []
         }
