@@ -5,13 +5,14 @@ import json
 import random
 from qbaf_scorer import apply_qbaf_scoring
 from legal_agents import LEGAL_AGENTS
-from RAG import RAGModule
+from rag import Retriever
 
 def rag_retrieval(state: GraphState) -> GraphState:
     print("[STEP] rag_retrieval: Starting document retrieval for task:", state.get('task_name'))
-    # Use RAGModule from test.py for vector search
-    rag = RAGModule(persist_directory="./chroma_db")
-    collection_name = "phq8_medical_docs"
+    # Use Retriever from rag.py for vector search
+    rag = Retriever(persist_directory="./chroma_db")
+    
+    collection_name = "legal_database"
     rag.load_collection(collection_name)
 
     if state['task_name'] == 'hearsay':

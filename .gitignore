@@ -1,4 +1,6 @@
 .env
 answers/
-error.py
-node_1.py
+legal_docs/
+__pycache__/
+chromadb/
+*.pyc

@@ -1,8 +1,0 @@
-temp
-__pycache__/
-mcp/db/aip.db
-mcp/docker/data/
-**/.DS_Store
-.ipynb_checkpoints
-
-.env

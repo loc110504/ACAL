@@ -1,7 +1,3 @@
-"""
-RAG (Retrieval-Augmented Generation) module using LangChain Chroma with Azure OpenAI embeddings.
-"""
-
 import os
 from typing import List, Dict, Optional
 from dotenv import load_dotenv
@@ -14,16 +10,9 @@ from langchain_core.documents import Document
 load_dotenv()
 
 
-class RAGModule:
-    """Manages retrieval-augmented generation using LangChain Chroma with Azure OpenAI embeddings."""
+class Retriever:
     
     def __init__(self, persist_directory: str = "./chroma_db"):
-        """
-        Initialize the RAG module.
-        
-        Args:
-            persist_directory: Directory to persist the ChromaDB collection
-        """
         self.persist_directory = persist_directory
         
         # Initialize Azure OpenAI embeddings
@@ -34,12 +23,7 @@ class RAGModule:
         self.collection_name = None
     
     def _create_azure_embeddings(self) -> AzureOpenAIEmbeddings:
-        """
-        Create Azure OpenAI embeddings client.
-        
-        Returns:
-            AzureOpenAIEmbeddings instance
-        """
+
         # Get Azure OpenAI embedding configuration from environment
         azure_endpoint = os.getenv("AZURE_ENDPOINT")
         api_key = os.getenv("AZURE_API_KEY")
@@ -64,19 +48,9 @@ class RAGModule:
     
     def create_collection_from_docs(
         self, 
-        docs_path: str, 
-        collection_name: str = "phq8_medical_docs"
+        docs_path: str="./legal_docs", 
+        collection_name: str = "legal_database"
     ):
-        """
-        Create a Chroma collection from medical documents in a folder.
-        
-        Args:
-            docs_path: Path to folder containing medical documents
-            collection_name: Name of the collection to create
-            
-        Returns:
-            The created Chroma vectorstore
-        """
         self.collection_name = collection_name
         
         # Load documents
@@ -128,23 +102,10 @@ class RAGModule:
             except Exception as e:
                 print(f"Error loading .pdf files: {e}")
         
-        # If no documents found, create default knowledge
-        if not documents:
-            print(f"Warning: No documents found in {docs_path}")
-            print("Creating default medical knowledge...")
-            knowledge = create_default_medical_knowledge()
-            documents = [
-                Document(
-                    page_content=text,
-                    metadata={"source": "default_knowledge", "chunk_id": i}
-                )
-                for i, text in enumerate(knowledge)
-            ]
-        
         # Split documents into chunks
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=500,
-            chunk_overlap=50,
+            chunk_overlap=100,
             length_function=len,
             separators=["\n\n", "\n", ". ", " ", ""]
         )
@@ -157,7 +118,7 @@ class RAGModule:
             if "chunk_id" not in doc.metadata:
                 doc.metadata["chunk_id"] = i
             if "doc_type" not in doc.metadata:
-                doc.metadata["doc_type"] = "medical_guideline"
+                doc.metadata["doc_type"] = "legal_document"
         
         # Create Chroma vectorstore
         print("Creating embeddings and storing in Chroma...")
@@ -172,16 +133,8 @@ class RAGModule:
         
         return self.vectorstore
     
-    def load_collection(self, collection_name: str = "phq8_medical_docs"):
-        """
-        Load an existing ChromaDB collection.
-        
-        Args:
-            collection_name: Name of the collection to load
-            
-        Returns:
-            The loaded Chroma vectorstore or None if not found
-        """
+    def load_collection(self, collection_name: str = "legal_database"):
+
         self.collection_name = collection_name
         
         try:
@@ -202,17 +155,7 @@ class RAGModule:
         top_k: int = 5,
         collection_name: Optional[str] = None
     ) -> List[Dict]:
-        """
-        Query the RAG system for relevant medical evidence.
-        
-        Args:
-            query: Query string
-            top_k: Number of top results to return
-            collection_name: Optional collection name to query
-            
-        Returns:
-            List of evidence dictionaries with doc_id, chunk_id, text
-        """
+
         if collection_name:
             self.load_collection(collection_name)
         
@@ -244,92 +187,3 @@ class RAGModule:
             print(f"Error querying vectorstore: {e}")
             return []
     
-    def build_rag_query(
-        self, 
-        criterion_name: str, 
-        symptom_analysis: str, 
-        dialogue_snippet: str = ""
-    ) -> str:
-        """
-        Build an optimized query for RAG retrieval.
-        
-        Args:
-            criterion_name: Name of the PHQ-8 criterion
-            symptom_analysis: Summary of symptom analysis
-            dialogue_snippet: Optional dialogue context
-            
-        Returns:
-            Optimized query string
-        """
-        query_parts = [
-            f"PHQ-8 {criterion_name}",
-            symptom_analysis
-        ]
-        
-        if dialogue_snippet:
-            query_parts.append(dialogue_snippet[:200])  # Limit snippet length
-        
-        query = " ".join(query_parts)
-        return query
-
-
-def main():
-    # =========================
-    # 1. Initialize RAG module
-    # =========================
-    rag = RAGModule(
-        persist_directory="./chroma_db"
-    )
-
-    # =========================
-    # 2. Create collection
-    # =========================
-    vectorstore = rag.create_collection_from_docs(
-        docs_path="./legal_docs",
-        collection_name="phq8_medical_docs"
-    )
-
-    print("\nCollection created successfully\n")
-
-    # =========================
-    # 3. Load existing collection (optional test)
-    # =========================
-    rag.load_collection("phq8_medical_docs")
-
-    # =========================
-    # 4. Build optimized RAG query
-    # =========================
-    rag_query = rag.build_rag_query(
-        criterion_name="Anhedonia",
-        symptom_analysis="Patient reports loss of interest in daily activities for more than 2 weeks",
-        dialogue_snippet="I don't feel motivated to do things I used to enjoy"
-    )
-
-    print("RAG QUERY:")
-    print(rag_query)
-    print("-" * 80)
-
-    # =========================
-    # 5. Query RAG
-    # =========================
-    evidences = rag.query_rag(
-        query=rag_query,
-        top_k=3
-    )
-
-    # =========================
-    # 6. Print results
-    # =========================
-    print(f"Retrieved {len(evidences)} evidence chunks\n")
-
-    for idx, ev in enumerate(evidences, start=1):
-        print(f"[{idx}] DOC ID : {ev['doc_id']}")
-        print(f"    SOURCE : {ev['source']}")
-        print(f"    SCORE  : {ev['score']:.4f}")
-        print(f"    TEXT   : {ev['text'][:300]}...")
-        print("-" * 80)
-
-
-if __name__ == "__main__":
-    main()
-
