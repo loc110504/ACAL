@@ -3,7 +3,7 @@
 
 This repository contains the official implementation and evaluation code for the paper:
 
-> **Adaptive Collaboration of Argumentative LLMs for Explainable and Contestable Legal Reasoning**
+> **Adaptive Collaboration of Argumentative LLMs for Explainable and Contestable Legal Reasoning** [Paper](https://arxiv.org/pdf/2602.18916)
 
 ---
 
