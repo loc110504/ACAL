@@ -1,10 +1,7 @@
-# Adaptive Collaboration of Arena-Based Argumentative LLMs for Explainable and Contestable Legal Reasoning
+# ACAL
+This repository contains the official implementation of our **Canadian AI 2026** paper: Adaptive Collaboration of Arena-Based Argumentative LLMs for Explainable and Contestable Legal Reasoning
 
-
-This repository contains the official implementation and evaluation code for the paper:
-
-> **Adaptive Collaboration of Arena-Based Argumentative LLMs for
-Explainable and Contestable Legal Reasoning** [[Paper](https://arxiv.org/pdf/2602.18916)]
+> Preprint Version: * [[Paper](https://arxiv.org/pdf/2602.18916)]
 
 ---
 
